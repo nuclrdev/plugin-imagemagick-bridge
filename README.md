@@ -1,0 +1,1 @@
+# plugin-imagemagick-bridge
