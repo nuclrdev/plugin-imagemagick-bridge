@@ -1,0 +1,4 @@
+# Core Plugin: ImageMagick Bridge
+
+A **Nuclr Commander** quick-view plugin that provides QuickView for image formats supported by system-installed ImageMagick.
+
