@@ -19,3 +19,4 @@ buildNumber.properties
 /.settings
 CLAUDE.md
 deploy.bat
+/.claude
