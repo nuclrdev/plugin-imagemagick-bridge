@@ -199,5 +199,10 @@ class IMBridgeServiceTest {
         public InputStream openStream() {
             return new ByteArrayInputStream(content);
         }
+
+		@Override
+		public Path path() {
+			return null;
+		}
     }
 }
