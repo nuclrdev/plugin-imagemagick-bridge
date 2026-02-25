@@ -3,6 +3,7 @@ package dev.nuclr.plugin.core.imagemagick.bridge;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
 import javax.swing.JFileChooser;
@@ -39,6 +40,7 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
 
     private final IMBridgeService service;
     private IMBridgeViewPanel panel;
+    private volatile AtomicBoolean currentCancelled;
 
     /** Called by the host PluginLoader via reflection — zero-arg constructor required. */
     public IMBridgeQuickViewProvider() {
@@ -156,13 +158,16 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
     }
 
     @Override
-    public boolean open(QuickViewItem item) {
+    public boolean open(QuickViewItem item, AtomicBoolean cancelled) {
+        if (currentCancelled != null) currentCancelled.set(true);
+        this.currentCancelled = cancelled;
         getPanel();
-        return panel.load(item);
+        return panel.load(item, cancelled);
     }
 
     @Override
     public void close() {
+        if (currentCancelled != null) currentCancelled.set(true);
         if (panel != null) {
             panel.clear();
         }

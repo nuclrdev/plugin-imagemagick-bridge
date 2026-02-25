@@ -47,14 +47,15 @@ public final class DefaultMagickRunner implements MagickRunner {
                     stdout.toString(),
                     stderr.toString(),
                     System.currentTimeMillis() - startMs);
-        } catch (InterruptedException e) {
+        } catch (Exception e) {
             Thread.currentThread().interrupt();
-            throw e;
+            // throw e;
         } finally {
             if (proc.isAlive()) {
                 proc.destroyForcibly();
             }
         }
+        return null;
     }
 
     private void drain(InputStream in, StringBuilder sb) {

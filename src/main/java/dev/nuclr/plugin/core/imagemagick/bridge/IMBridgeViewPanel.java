@@ -8,6 +8,8 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import javax.swing.SwingUtilities;
 
 import dev.nuclr.plugin.QuickViewItem;
@@ -53,7 +55,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Public API
 
-	public boolean load(QuickViewItem item) {
+	public boolean load(QuickViewItem item, AtomicBoolean cancelled) {
 		// Cancel any in-flight task
 		Thread prev = loadingThread;
 		if (prev != null) {
@@ -65,7 +67,10 @@ public class IMBridgeViewPanel extends JPanel {
 		loading = true;
 		repaint();
 
-		return doLoad(item);
+		loadingThread = Thread.ofVirtual()
+				.name("imbridge-load")
+				.start(() -> doLoad(item, cancelled));
+		return true;
 	}
 
 	public void clear() {
@@ -83,17 +88,18 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Background loading
 
-	private boolean doLoad(QuickViewItem item) {
+	private void doLoad(QuickViewItem item, AtomicBoolean cancelled) {
 		try {
 			BufferedImage img = service.convertToPng(item);
+			if (cancelled.get()) return;
 			SwingUtilities.invokeLater(() -> {
 				image = img;
 				statusMessage = null;
 				loading = false;
 				repaint();
 			});
-			return true;
 		} catch (Exception e) {
+			if (cancelled.get()) return;
 			String msg = toFriendlyMessage(e);
 			log.warn("ImageMagick Bridge: cannot load '{}': {}", item.name(), e.getMessage());
 			log.debug("ImageMagick Bridge load error detail", e);
@@ -103,7 +109,6 @@ public class IMBridgeViewPanel extends JPanel {
 				loading = false;
 				repaint();
 			});
-			return false;
 		}
 	}
 
