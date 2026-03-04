@@ -11,6 +11,7 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import dev.nuclr.plugin.PluginTheme;
 import dev.nuclr.plugin.QuickViewItem;
 import dev.nuclr.plugin.QuickViewProvider;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
@@ -41,6 +42,7 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
     private final IMBridgeService service;
     private IMBridgeViewPanel panel;
     private volatile AtomicBoolean currentCancelled;
+    private PluginTheme theme;
 
     /** Called by the host PluginLoader via reflection — zero-arg constructor required. */
     public IMBridgeQuickViewProvider() {
@@ -153,8 +155,17 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
     public JComponent getPanel() {
         if (panel == null) {
             panel = new IMBridgeViewPanel(service);
+            panel.applyTheme(theme);
         }
         return panel;
+    }
+
+    @Override
+    public void applyTheme(PluginTheme theme) {
+        this.theme = theme;
+        if (panel != null) {
+            panel.applyTheme(theme);
+        }
     }
 
     @Override

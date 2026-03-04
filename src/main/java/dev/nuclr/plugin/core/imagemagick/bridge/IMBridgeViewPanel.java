@@ -35,9 +35,9 @@ import javax.swing.JPanel;
 @Slf4j
 public class IMBridgeViewPanel extends JPanel {
 
-	private static final Color BG = Color.BLACK;
-	private static final Color ERROR = new Color(200, 80, 80);
-	private static final Color LOADING = new Color(140, 140, 140);
+	private Color backgroundColor = Color.BLACK;
+	private Color errorColor = new Color(200, 80, 80);
+	private Color loadingColor = new Color(140, 140, 140);
 
 	private final IMBridgeService service;
 
@@ -48,8 +48,20 @@ public class IMBridgeViewPanel extends JPanel {
 
 	public IMBridgeViewPanel(IMBridgeService service) {
 		this.service = service;
-		setBackground(BG);
+		setBackground(backgroundColor);
 		setOpaque(true);
+	}
+
+	public void applyTheme(dev.nuclr.plugin.PluginTheme theme) {
+		if (theme == null) {
+			return;
+		}
+
+		backgroundColor = theme.color("Panel.background", backgroundColor);
+		loadingColor = theme.color("Label.foreground", loadingColor);
+		errorColor = theme.color("Component.error.focusedBorderColor", errorColor);
+		setBackground(backgroundColor);
+		repaint();
 	}
 
 	// -------------------------------------------------------------------------
@@ -138,15 +150,15 @@ public class IMBridgeViewPanel extends JPanel {
 		super.paintComponent(g);
 
 		// Background
-		g.setColor(BG);
+		g.setColor(backgroundColor);
 		g.fillRect(0, 0, getWidth(), getHeight());
 
 		if (loading) {
-			drawCenteredText(g, "Converting\u2026", LOADING);
+			drawCenteredText(g, "Converting\u2026", loadingColor);
 		} else if (image != null) {
 			drawImage((Graphics2D) g);
 		} else if (statusMessage != null) {
-			drawCenteredText(g, statusMessage, ERROR);
+			drawCenteredText(g, statusMessage, errorColor);
 		}
 	}
 
