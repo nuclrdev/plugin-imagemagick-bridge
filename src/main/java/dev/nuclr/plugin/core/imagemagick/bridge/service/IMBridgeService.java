@@ -14,7 +14,7 @@ import java.util.Set;
 
 import javax.imageio.ImageIO;
 
-import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>Construct with a {@link IMBridgeConfig} and a {@link MagickRunner}.</li>
  *   <li>Call {@link #init()} (typically on a background thread) — locates the
  *       {@code magick} binary and populates the supported-extension set.</li>
- *   <li>Call {@link #convertToPng(QuickViewItem)} from any thread for each preview
+ *   <li>Call {@link #convertToPng(PluginPathResource)} from any thread for each preview
  *       request; the result is a path to a cached PNG that can be read with
  *       {@code ImageIO.read()}.</li>
  * </ol>
@@ -147,14 +147,14 @@ public final class IMBridgeService {
      * @throws IllegalArgumentException if the file exceeds the configured size limit
      * @throws IOException              on I/O or conversion failure
      */
-    public BufferedImage convertToPng(QuickViewItem item) throws Exception {
+    public BufferedImage convertToPng(PluginPathResource item) throws Exception {
         if (!isReady()) {
             throw new IllegalStateException(
                     initError != null ? initError : "ImageMagick not yet initialised");
         }
 
         // Enforce input-size guard (best-effort — sizeBytes may be 0 if unknown)
-        long reportedSize = item.sizeBytes();
+        long reportedSize = item.getSizeBytes();
         if (config.getMaxInputSizeBytes() > 0
                 && reportedSize > 0
                 && reportedSize > config.getMaxInputSizeBytes()) {
@@ -164,7 +164,7 @@ public final class IMBridgeService {
                     config.getMaxInputSizeBytes() / 1_048_576.0));
         }
 
-        Path tempInput  = Files.createTempFile("imbridge-in-",  "." + item.extension());
+        Path tempInput  = Files.createTempFile("imbridge-in-",  "." + item.getExtension());
         Path tempOutput = Files.createTempFile("imbridge-out-", ".png");
         try {
             // Write item stream to the temp input file
@@ -183,12 +183,12 @@ public final class IMBridgeService {
                 }
             }
 
-            runConversion(tempInput, tempOutput, item.name());
+            runConversion(tempInput, tempOutput, item.getName());
 
             BufferedImage img = ImageIO.read(tempOutput.toFile());
             if (img == null) {
                 throw new IOException(
-                        "ImageIO could not decode the converted PNG for: " + item.name());
+                        "ImageIO could not decode the converted PNG for: " + item.getName());
             }
             return img;
 

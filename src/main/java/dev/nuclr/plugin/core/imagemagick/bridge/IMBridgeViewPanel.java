@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.SwingUtilities;
 
-import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,13 +21,13 @@ import javax.swing.JPanel;
 /**
  * Swing panel that displays an image converted via ImageMagick.
  *
- * <p>Each call to {@link #load(QuickViewItem)} spawns a virtual thread that:
+ * <p>Each call to {@link #load(PluginPathResource, AtomicBoolean)} spawns a virtual thread that:
  * <ol>
  *   <li>Asks {@link IMBridgeService} to convert the item to a cached PNG.</li>
  *   <li>Reads the PNG with {@code ImageIO}.</li>
  *   <li>Posts the result back to the EDT via {@code SwingUtilities.invokeLater}.</li>
  * </ol>
- * Calling {@link #load(QuickViewItem)} again before the previous task finishes
+ * Calling {@link #load(PluginPathResource, AtomicBoolean)} again before the previous task finishes
  * cancels the previous task (thread interrupt).
  *
  * <p>On failure the panel renders a one-line error message instead of an image.
@@ -67,7 +67,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Public API
 
-	public boolean load(QuickViewItem item, AtomicBoolean cancelled) {
+	public boolean load(PluginPathResource item, AtomicBoolean cancelled) {
 		// Cancel any in-flight task
 		Thread prev = loadingThread;
 		if (prev != null) {
@@ -100,7 +100,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Background loading
 
-	private void doLoad(QuickViewItem item, AtomicBoolean cancelled) {
+	private void doLoad(PluginPathResource item, AtomicBoolean cancelled) {
 		try {
 			BufferedImage img = service.convertToPng(item);
 			if (cancelled.get()) return;
@@ -113,7 +113,7 @@ public class IMBridgeViewPanel extends JPanel {
 		} catch (Exception e) {
 			if (cancelled.get()) return;
 			String msg = toFriendlyMessage(e);
-			log.warn("ImageMagick Bridge: cannot load '{}': {}", item.name(), e.getMessage());
+			log.warn("ImageMagick Bridge: cannot load '{}': {}", item.getName(), e.getMessage());
 			log.debug("ImageMagick Bridge load error detail", e);
 			SwingUtilities.invokeLater(() -> {
 				image = null;

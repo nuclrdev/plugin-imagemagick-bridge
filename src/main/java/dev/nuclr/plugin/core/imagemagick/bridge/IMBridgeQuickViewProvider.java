@@ -1,8 +1,10 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
 import java.io.File;
+import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
@@ -11,16 +13,24 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import dev.nuclr.plugin.ApplicationPluginContext;
+import dev.nuclr.plugin.MenuResource;
+import dev.nuclr.plugin.PluginManifest;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.PluginTheme;
-import dev.nuclr.plugin.QuickViewItem;
-import dev.nuclr.plugin.QuickViewProvider;
+import dev.nuclr.plugin.QuickViewProviderPlugin;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.DefaultMagickRunner;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
+import dev.nuclr.plugin.event.PluginEvent;
+import dev.nuclr.plugin.event.PluginThemeUpdatedEvent;
+import dev.nuclr.plugin.event.bus.PluginEventListener;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@link QuickViewProvider} entry point for the ImageMagick Bridge plugin.
+ * {@link QuickViewProviderPlugin} entry point for the ImageMagick Bridge plugin.
  *
  * <p>Initialisation (background virtual thread):
  * <ol>
@@ -33,13 +43,14 @@ import lombok.extern.slf4j.Slf4j;
  *       disabled silently.</li>
  * </ol>
  *
- * <p>{@link #matches(QuickViewItem)} is always fast (no I/O) — it reads the
+ * <p>{@link #supports(PluginPathResource)} is always fast (no I/O) - it reads the
  * volatile extension set populated by the background thread.
  */
 @Slf4j
-public class IMBridgeQuickViewProvider implements QuickViewProvider {
+public class IMBridgeQuickViewProvider implements QuickViewProviderPlugin, PluginEventListener {
 
     private final IMBridgeService service;
+    private ApplicationPluginContext context;
     private IMBridgeViewPanel panel;
     private volatile AtomicBoolean currentCancelled;
     private PluginTheme theme;
@@ -133,12 +144,17 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
         return System.getProperty("os.name", "").toLowerCase().startsWith("win");
     }
 
-    // -------------------------------------------------------------------------
-    // QuickViewProvider
-
     @Override
-    public String getPluginClass() {
-        return getClass().getName();
+    public PluginManifest getPluginInfo() {
+        ObjectMapper objectMapper = context != null ? context.getObjectMapper() : new ObjectMapper();
+        try (InputStream is = getClass().getResourceAsStream("/plugin.json")) {
+            if (is != null) {
+                return objectMapper.readValue(is, PluginManifest.class);
+            }
+        } catch (Exception e) {
+            log.error("Error reading /plugin.json for IMBridgeQuickViewProvider", e);
+        }
+        return null;
     }
 
     /**
@@ -146,9 +162,12 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
      * populates the supported-extension set.
      */
     @Override
-    public boolean matches(QuickViewItem item) {
+    public boolean supports(PluginPathResource resource) {
+        if (resource == null || resource.getExtension() == null) {
+            return false;
+        }
         return service.getSupportedExtensions()
-                .contains(item.extension().toLowerCase());
+                .contains(resource.getExtension().toLowerCase());
     }
 
     @Override
@@ -161,6 +180,53 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
     }
 
     @Override
+    public List<MenuResource> getMenuItems(PluginPathResource source) {
+        return List.of();
+    }
+
+    @Override
+    public void load(ApplicationPluginContext context) {
+        this.context = context;
+        context.getEventBus().subscribe(this);
+        applyTheme(resolveTheme(context));
+    }
+
+    @Override
+    public boolean openItem(PluginPathResource item, AtomicBoolean cancelled) {
+        if (currentCancelled != null) {
+            currentCancelled.set(true);
+        }
+        currentCancelled = cancelled;
+        getPanel();
+        return panel.load(item, cancelled);
+    }
+
+    @Override
+    public void closeItem() {
+        if (currentCancelled != null) {
+            currentCancelled.set(true);
+            currentCancelled = null;
+        }
+        if (panel != null) {
+            panel.clear();
+        }
+    }
+
+    @Override
+    public void unload() {
+        closeItem();
+        if (context != null) {
+            context.getEventBus().unsubscribe(this);
+        }
+        panel = null;
+        context = null;
+    }
+
+	@Override
+	public int getPriority() {
+		return 50;
+	}
+
     public void applyTheme(PluginTheme theme) {
         this.theme = theme;
         if (panel != null) {
@@ -169,29 +235,35 @@ public class IMBridgeQuickViewProvider implements QuickViewProvider {
     }
 
     @Override
-    public boolean open(QuickViewItem item, AtomicBoolean cancelled) {
-        if (currentCancelled != null) currentCancelled.set(true);
-        this.currentCancelled = cancelled;
-        getPanel();
-        return panel.load(item, cancelled);
+    public boolean isMessageSupported(PluginEvent msg) {
+        return msg instanceof PluginThemeUpdatedEvent;
     }
 
     @Override
-    public void close() {
-        if (currentCancelled != null) currentCancelled.set(true);
-        if (panel != null) {
-            panel.clear();
+    public void handleMessage(PluginEvent e) {
+        if (e instanceof PluginThemeUpdatedEvent) {
+            applyTheme(resolveTheme(context));
         }
     }
 
     @Override
-    public void unload() {
-        close();
-        panel = null;
+    public void onFocusGained() {
+        // Quick view providers do not require focus-specific behavior.
     }
 
-	@Override
-	public int priority() {
-		return 50;
-	}
+    @Override
+    public void onFocusLost() {
+        // Quick view providers do not require focus-specific behavior.
+    }
+
+    private static PluginTheme resolveTheme(ApplicationPluginContext context) {
+        if (context == null) {
+            return null;
+        }
+        Object theme = context.getGlobalData().get("pluginTheme");
+        if (theme instanceof PluginTheme pluginTheme) {
+            return pluginTheme;
+        }
+        return null;
+    }
 }

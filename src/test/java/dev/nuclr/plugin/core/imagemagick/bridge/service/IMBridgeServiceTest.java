@@ -4,13 +4,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.InputStream;
 import java.nio.file.Path;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import dev.nuclr.plugin.QuickViewItem;
+import dev.nuclr.plugin.PluginPathResource;
 import dev.nuclr.plugin.core.imagemagick.bridge.MockMagickRunner;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 
@@ -109,7 +108,7 @@ class IMBridgeServiceTest {
         // Max input size is 512 MB by default; fake a file that reports 1 GB
         StubItem oversized = new StubItem("big.tiff", new byte[]{1}) {
             @Override
-            public long sizeBytes() {
+            public long getSizeBytes() {
                 return 1_073_741_824L; // 1 GB
             }
         };
@@ -168,41 +167,26 @@ class IMBridgeServiceTest {
     // Stub helper
 
     /**
-     * Minimal {@link QuickViewItem} implementation backed by a byte array.
+     * Minimal {@link PluginPathResource} implementation backed by a byte array.
      */
-    static class StubItem implements QuickViewItem {
-
-        private final String name;
+    static class StubItem extends PluginPathResource {
         private final byte[] content;
 
         StubItem(String name, byte[] content) {
-            this.name    = name;
+            setName(name);
+            setExtension(extensionFromName(name));
+            setSizeBytes(content.length);
             this.content = content;
         }
 
         @Override
-        public String name()      { return name; }
-
-        @Override
-        public long sizeBytes()   { return content.length; }
-
-        @Override
-        public String extension() {
-            int dot = name.lastIndexOf('.');
-            return dot >= 0 ? name.substring(dot + 1) : "";
-        }
-
-        @Override
-        public String mimeType()  { return null; }
-
-        @Override
-        public InputStream openStream() {
+        public ByteArrayInputStream openStream() {
             return new ByteArrayInputStream(content);
         }
 
-		@Override
-		public Path path() {
-			return null;
-		}
+        private static String extensionFromName(String name) {
+            int dot = name.lastIndexOf('.');
+            return dot >= 0 ? name.substring(dot + 1) : "";
+        }
     }
 }
