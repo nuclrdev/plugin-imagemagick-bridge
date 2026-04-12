@@ -24,8 +24,8 @@
 	<dependencies>
 		<dependency>
 			<groupId>dev.nuclr</groupId>
-			<artifactId>plugins-sdk</artifactId>
-			<version>1.0.0</version>
+			<artifactId>platform-sdk</artifactId>
+			<version>2.0.3</version>
 			<scope>provided</scope>
 		</dependency>
 		<dependency>
@@ -86,7 +86,7 @@
 							<includeScope>runtime</includeScope>
 							<excludeTransitive>false</excludeTransitive>
 							<!-- SDK is provided by the host classloader; do not bundle it -->
-							<excludeArtifactIds>plugins-sdk</excludeArtifactIds>
+							<excludeArtifactIds>platform-sdk</excludeArtifactIds>
 							<stripVersion>false</stripVersion>
 						</configuration>
 					</execution>

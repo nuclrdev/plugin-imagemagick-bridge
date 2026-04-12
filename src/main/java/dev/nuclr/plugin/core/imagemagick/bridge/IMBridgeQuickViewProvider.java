@@ -1,7 +1,6 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
 import java.io.File;
-import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
 import java.util.List;
@@ -13,20 +12,14 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import dev.nuclr.plugin.ApplicationPluginContext;
-import dev.nuclr.plugin.MenuResource;
-import dev.nuclr.plugin.PluginManifest;
-import dev.nuclr.plugin.PluginPathResource;
-import dev.nuclr.plugin.PluginTheme;
-import dev.nuclr.plugin.QuickViewProviderPlugin;
+import dev.nuclr.platform.NuclrThemeScheme;
+import dev.nuclr.platform.plugin.NuclrMenuResource;
+import dev.nuclr.platform.plugin.NuclrPlugin;
+import dev.nuclr.platform.plugin.NuclrPluginContext;
+import dev.nuclr.platform.plugin.NuclrResourcePath;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.DefaultMagickRunner;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
-import dev.nuclr.plugin.event.PluginEvent;
-import dev.nuclr.plugin.event.PluginThemeUpdatedEvent;
-import dev.nuclr.plugin.event.bus.PluginEventListener;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -43,17 +36,19 @@ import lombok.extern.slf4j.Slf4j;
  *       disabled silently.</li>
  * </ol>
  *
- * <p>{@link #supports(PluginPathResource)} is always fast (no I/O) - it reads the
+ * <p>{@link #supports(NuclrResourcePath)} is always fast (no I/O) - it reads the
  * volatile extension set populated by the background thread.
  */
 @Slf4j
-public class IMBridgeQuickViewProvider implements QuickViewProviderPlugin, PluginEventListener {
+public class IMBridgeQuickViewProvider implements NuclrPlugin {
+
+    private static final String THEME_UPDATED_EVENT_TYPE = "dev.nuclr.platform.theme.updated";
 
     private final IMBridgeService service;
-    private ApplicationPluginContext context;
+    private NuclrPluginContext context;
     private IMBridgeViewPanel panel;
     private volatile AtomicBoolean currentCancelled;
-    private PluginTheme theme;
+    private NuclrThemeScheme theme;
 
     /** Called by the host PluginLoader via reflection — zero-arg constructor required. */
     public IMBridgeQuickViewProvider() {
@@ -144,25 +139,12 @@ public class IMBridgeQuickViewProvider implements QuickViewProviderPlugin, Plugi
         return System.getProperty("os.name", "").toLowerCase().startsWith("win");
     }
 
-    @Override
-    public PluginManifest getPluginInfo() {
-        ObjectMapper objectMapper = context != null ? context.getObjectMapper() : new ObjectMapper();
-        try (InputStream is = getClass().getResourceAsStream("/plugin.json")) {
-            if (is != null) {
-                return objectMapper.readValue(is, PluginManifest.class);
-            }
-        } catch (Exception e) {
-            log.error("Error reading /plugin.json for IMBridgeQuickViewProvider", e);
-        }
-        return null;
-    }
-
     /**
      * Fast check — no I/O.  Returns {@code false} until the background init
      * populates the supported-extension set.
      */
     @Override
-    public boolean supports(PluginPathResource resource) {
+    public boolean supports(NuclrResourcePath resource) {
         if (resource == null || resource.getExtension() == null) {
             return false;
         }
@@ -171,38 +153,35 @@ public class IMBridgeQuickViewProvider implements QuickViewProviderPlugin, Plugi
     }
 
     @Override
-    public JComponent getPanel() {
+    public JComponent panel() {
         if (panel == null) {
             panel = new IMBridgeViewPanel(service);
-            panel.applyTheme(theme);
         }
         return panel;
     }
 
     @Override
-    public List<MenuResource> getMenuItems(PluginPathResource source) {
+    public List<NuclrMenuResource> menuItems(NuclrResourcePath source) {
         return List.of();
     }
 
     @Override
-    public void load(ApplicationPluginContext context) {
+    public void load(NuclrPluginContext context, boolean template) {
         this.context = context;
-        context.getEventBus().subscribe(this);
-        applyTheme(resolveTheme(context));
     }
 
     @Override
-    public boolean openItem(PluginPathResource item, AtomicBoolean cancelled) {
+    public boolean openResource(NuclrResourcePath item, AtomicBoolean cancelled) {
         if (currentCancelled != null) {
             currentCancelled.set(true);
         }
         currentCancelled = cancelled;
-        getPanel();
+        panel();
         return panel.load(item, cancelled);
     }
 
     @Override
-    public void closeItem() {
+    public void closeResource() {
         if (currentCancelled != null) {
             currentCancelled.set(true);
             currentCancelled = null;
@@ -214,56 +193,92 @@ public class IMBridgeQuickViewProvider implements QuickViewProviderPlugin, Plugi
 
     @Override
     public void unload() {
-        closeItem();
-        if (context != null) {
-            context.getEventBus().unsubscribe(this);
-        }
+    	closeResource();
         panel = null;
         context = null;
     }
 
-	@Override
-	public int getPriority() {
+    @Override
+	public int priority() {
 		return 50;
 	}
 
-    public void applyTheme(PluginTheme theme) {
-        this.theme = theme;
-        if (panel != null) {
-            panel.applyTheme(theme);
-        }
-    }
-
     @Override
-    public boolean isMessageSupported(PluginEvent msg) {
-        return msg instanceof PluginThemeUpdatedEvent;
-    }
-
-    @Override
-    public void handleMessage(PluginEvent e) {
-        if (e instanceof PluginThemeUpdatedEvent) {
-            applyTheme(resolveTheme(context));
-        }
-    }
-
-    @Override
-    public void onFocusGained() {
-        // Quick view providers do not require focus-specific behavior.
+    public boolean onFocusGained() {
+    		return false;
     }
 
     @Override
     public void onFocusLost() {
-        // Quick view providers do not require focus-specific behavior.
     }
 
-    private static PluginTheme resolveTheme(ApplicationPluginContext context) {
-        if (context == null) {
-            return null;
-        }
-        Object theme = context.getGlobalData().get("pluginTheme");
-        if (theme instanceof PluginTheme pluginTheme) {
-            return pluginTheme;
-        }
-        return null;
-    }
+	@Override
+	public boolean isFocused() {
+		return false;
+	}
+
+	private String name = "ImageMagick Bridge";
+	private String id = "dev.nuclr.plugin.core.imagemagick.bridge";
+	private String version = "1.0.0";
+	private String description = "'ImageMagick Bridge' provides QuickView for image formats supported by system-installed ImageMagick";
+	private String author = "Nuclr Development Team";
+	private String license = "Apache-2.0";
+	private String website = "https://nuclr.dev";
+	private String pageUrl = "https://nuclr.dev/plugins/core/imagemagick-bridge.html";
+	private String docUrl = "https://nuclr.dev/plugins/core/imagemagick-bridge.html";
+
+	@Override
+	public String id() {
+		return id;
+	}
+
+	@Override
+	public String name() {
+		return name;
+	}
+
+	@Override
+	public String version() {
+		return version;
+	}
+
+	@Override
+	public String description() {
+		return description;
+	}
+
+	@Override
+	public String author() {
+		return author;
+	}
+
+	@Override
+	public String license() {
+		return license;
+	}
+
+	@Override
+	public String website() {
+		return website;
+	}
+
+	@Override
+	public String pageUrl() {
+		return pageUrl;
+	}
+
+	@Override
+	public String docUrl() {
+		return docUrl;
+	}
+
+	@Override
+	public Developer type() {
+		return Developer.Official;
+	}
+
+	@Override
+	public void updateTheme(NuclrThemeScheme themeScheme) {
+		
+	}
 }

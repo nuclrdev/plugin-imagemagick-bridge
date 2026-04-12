@@ -7,27 +7,26 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
-import dev.nuclr.plugin.PluginPathResource;
+import dev.nuclr.platform.NuclrThemeScheme;
+import dev.nuclr.platform.plugin.NuclrResourcePath;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
 import lombok.extern.slf4j.Slf4j;
-
-import javax.swing.JPanel;
 
 /**
  * Swing panel that displays an image converted via ImageMagick.
  *
- * <p>Each call to {@link #load(PluginPathResource, AtomicBoolean)} spawns a virtual thread that:
+ * <p>Each call to {@link #load(NuclrResourcePath, AtomicBoolean)} spawns a virtual thread that:
  * <ol>
  *   <li>Asks {@link IMBridgeService} to convert the item to a cached PNG.</li>
  *   <li>Reads the PNG with {@code ImageIO}.</li>
  *   <li>Posts the result back to the EDT via {@code SwingUtilities.invokeLater}.</li>
  * </ol>
- * Calling {@link #load(PluginPathResource, AtomicBoolean)} again before the previous task finishes
+ * Calling {@link #load(NuclrResourcePath, AtomicBoolean)} again before the previous task finishes
  * cancels the previous task (thread interrupt).
  *
  * <p>On failure the panel renders a one-line error message instead of an image.
@@ -52,7 +51,7 @@ public class IMBridgeViewPanel extends JPanel {
 		setOpaque(true);
 	}
 
-	public void applyTheme(dev.nuclr.plugin.PluginTheme theme) {
+	public void applyTheme(NuclrThemeScheme theme) {
 		if (theme == null) {
 			return;
 		}
@@ -67,7 +66,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Public API
 
-	public boolean load(PluginPathResource item, AtomicBoolean cancelled) {
+	public boolean load(NuclrResourcePath item, AtomicBoolean cancelled) {
 		// Cancel any in-flight task
 		Thread prev = loadingThread;
 		if (prev != null) {
@@ -100,7 +99,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Background loading
 
-	private void doLoad(PluginPathResource item, AtomicBoolean cancelled) {
+	private void doLoad(NuclrResourcePath item, AtomicBoolean cancelled) {
 		try {
 			BufferedImage img = service.convertToPng(item);
 			if (cancelled.get()) return;

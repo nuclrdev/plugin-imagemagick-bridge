@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
  * Unit tests for {@link FormatRegistry#parse(String)}.
  * Tests run without any external process — purely against the static parser.
  */
-class FormatRegistryTest {
+public class FormatRegistryTest {
 
     /**
      * 4-column layout: {@code Format  Module  Mode  Description}.
