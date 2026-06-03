@@ -11,6 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import javax.imageio.ImageIO;
 
@@ -50,6 +52,16 @@ public final class IMBridgeService {
     private volatile boolean initFailed = false;
     private volatile String initError = null;
 
+    /**
+     * Counted down when auto-detection {@link #init()} reaches a terminal state
+     * (ready or failed). Lets {@link #convertToPng(NuclrResource)} block briefly for
+     * an in-flight init instead of erroring on the very first preview.
+     */
+    private final CountDownLatch initLatch = new CountDownLatch(1);
+
+    /** Max time a conversion request waits for a still-running init to finish. */
+    private static final long INIT_WAIT_SECONDS = 30;
+
     public IMBridgeService(IMBridgeConfig config, MagickRunner runner) {
         this.config = config;
         this.runner = runner;
@@ -82,6 +94,9 @@ public final class IMBridgeService {
         } catch (Exception e) {
             setFailed("ImageMagick Bridge init error: " + e.getMessage());
             log.error("ImageMagick Bridge init failed", e);
+        } finally {
+            // Release any preview request waiting on the very first init.
+            initLatch.countDown();
         }
     }
 
@@ -130,6 +145,18 @@ public final class IMBridgeService {
     public boolean isInitFailed() { return initFailed; }
     public String  getInitError() { return initError; }
 
+    /**
+     * Blocks the caller until the background {@link #init()} reaches a terminal
+     * state, or {@link #INIT_WAIT_SECONDS} elapses. No-op once init has finished.
+     */
+    private void awaitInit() {
+        try {
+            initLatch.await(INIT_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     /** Returns the (possibly empty) set of supported extensions; never {@code null}. */
     public Set<String> getSupportedExtensions() {
         return supportedExtensions;
@@ -159,6 +186,9 @@ public final class IMBridgeService {
     }
 
     public BufferedImage convertToPng(NuclrResource item) throws Exception {
+        if (!isReady()) {
+            awaitInit(); // first preview may race the background init thread
+        }
         if (!isReady()) {
             throw new IllegalStateException(
                     initError != null ? initError : "ImageMagick not yet initialised");
