@@ -7,26 +7,28 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 
 import dev.nuclr.platform.NuclrThemeScheme;
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Swing panel that displays an image converted via ImageMagick.
  *
- * <p>Each call to {@link #load(NuclrResourcePath, AtomicBoolean)} spawns a virtual thread that:
+ * <p>Each call to {@link #load(NuclrResource, AtomicBoolean)} spawns a virtual thread that:
  * <ol>
  *   <li>Asks {@link IMBridgeService} to convert the item to a cached PNG.</li>
  *   <li>Reads the PNG with {@code ImageIO}.</li>
  *   <li>Posts the result back to the EDT via {@code SwingUtilities.invokeLater}.</li>
  * </ol>
- * Calling {@link #load(NuclrResourcePath, AtomicBoolean)} again before the previous task finishes
+ * Calling {@link #load(NuclrResource, AtomicBoolean)} again before the previous task finishes
  * cancels the previous task (thread interrupt).
  *
  * <p>On failure the panel renders a one-line error message instead of an image.
@@ -34,9 +36,14 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class IMBridgeViewPanel extends JPanel {
 
+	private static final int MESSAGE_WRAP_WIDTH = 56;
+
 	private Color backgroundColor = Color.BLACK;
 	private Color errorColor = new Color(200, 80, 80);
 	private Color loadingColor = new Color(140, 140, 140);
+	private Color cardBackgroundColor = new Color(36, 36, 36);
+	private Color cardBorderColor = new Color(85, 85, 85);
+	private Color detailColor = new Color(210, 210, 210);
 
 	private final IMBridgeService service;
 
@@ -59,6 +66,9 @@ public class IMBridgeViewPanel extends JPanel {
 		backgroundColor = theme.color("Panel.background", backgroundColor);
 		loadingColor = theme.color("Label.foreground", loadingColor);
 		errorColor = theme.color("Component.error.focusedBorderColor", errorColor);
+		cardBackgroundColor = theme.color("TextField.background", cardBackgroundColor);
+		cardBorderColor = theme.color("Table.gridColor", cardBorderColor);
+		detailColor = theme.color("Label.foreground", detailColor);
 		setBackground(backgroundColor);
 		repaint();
 	}
@@ -66,7 +76,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Public API
 
-	public boolean load(NuclrResourcePath item, AtomicBoolean cancelled) {
+	public boolean load(NuclrResource item, AtomicBoolean cancelled) {
 		// Cancel any in-flight task
 		Thread prev = loadingThread;
 		if (prev != null) {
@@ -99,7 +109,7 @@ public class IMBridgeViewPanel extends JPanel {
 	// -------------------------------------------------------------------------
 	// Background loading
 
-	private void doLoad(NuclrResourcePath item, AtomicBoolean cancelled) {
+	private void doLoad(NuclrResource item, AtomicBoolean cancelled) {
 		try {
 			BufferedImage img = service.convertToPng(item);
 			if (cancelled.get()) return;
@@ -157,7 +167,7 @@ public class IMBridgeViewPanel extends JPanel {
 		} else if (image != null) {
 			drawImage((Graphics2D) g);
 		} else if (statusMessage != null) {
-			drawCenteredText(g, statusMessage, errorColor);
+			drawErrorCard((Graphics2D) g.create(), statusMessage);
 		}
 	}
 
@@ -215,5 +225,123 @@ public class IMBridgeViewPanel extends JPanel {
 		int x = Math.max(8, (getWidth() - fm.stringWidth(text)) / 2);
 		int y = (getHeight() - fm.getHeight()) / 2 + fm.getAscent();
 		g.drawString(text, x, y);
+	}
+
+	private void drawErrorCard(Graphics2D g2, String message) {
+		try {
+			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+			Font baseFont = getFont() != null ? getFont() : new Font(Font.DIALOG, Font.PLAIN, 12);
+			Font titleFont = baseFont.deriveFont(Font.BOLD, Math.max(15f, baseFont.getSize2D() + 2f));
+			Font bodyFont = baseFont.deriveFont(Font.PLAIN, Math.max(12f, baseFont.getSize2D()));
+
+			String title = classifyErrorTitle(message);
+			List<String> lines = wrapMessage(message, MESSAGE_WRAP_WIDTH);
+
+			FontMetrics titleMetrics = g2.getFontMetrics(titleFont);
+			FontMetrics bodyMetrics = g2.getFontMetrics(bodyFont);
+
+			int contentWidth = titleMetrics.stringWidth(title);
+			for (String line : lines) {
+				contentWidth = Math.max(contentWidth, bodyMetrics.stringWidth(line));
+			}
+
+			int horizontalPadding = 18;
+			int verticalPadding = 16;
+			int lineGap = 6;
+			int titleGap = lines.isEmpty() ? 0 : 10;
+			int cardWidth = Math.min(getWidth() - 24, contentWidth + horizontalPadding * 2);
+			int cardHeight = verticalPadding * 2 + titleMetrics.getHeight();
+			if (!lines.isEmpty()) {
+				cardHeight += titleGap + (lines.size() * bodyMetrics.getHeight()) + ((lines.size() - 1) * lineGap);
+			}
+
+			int cardX = Math.max(12, (getWidth() - cardWidth) / 2);
+			int cardY = Math.max(12, (getHeight() - cardHeight) / 2);
+			int arc = 18;
+
+			g2.setColor(cardBackgroundColor);
+			g2.fillRoundRect(cardX, cardY, cardWidth, cardHeight, arc, arc);
+			g2.setColor(cardBorderColor);
+			g2.drawRoundRect(cardX, cardY, cardWidth, cardHeight, arc, arc);
+
+			int textX = cardX + horizontalPadding;
+			int y = cardY + verticalPadding + titleMetrics.getAscent();
+
+			g2.setFont(titleFont);
+			g2.setColor(errorColor);
+			g2.drawString(title, textX, y);
+
+			if (!lines.isEmpty()) {
+				y += titleMetrics.getDescent() + titleGap + bodyMetrics.getAscent();
+				g2.setFont(bodyFont);
+				g2.setColor(detailColor);
+				for (String line : lines) {
+					g2.drawString(line, textX, y);
+					y += bodyMetrics.getHeight() + lineGap;
+				}
+			}
+		} finally {
+			g2.dispose();
+		}
+	}
+
+	private static String classifyErrorTitle(String message) {
+		if (message == null || message.isBlank()) {
+			return "Preview unavailable";
+		}
+		String normalized = message.toLowerCase();
+		if (normalized.contains("not available") || normalized.contains("not found") || normalized.contains("initialised")) {
+			return "ImageMagick unavailable";
+		}
+		if (normalized.contains("timed out")) {
+			return "Conversion timed out";
+		}
+		if (normalized.contains("too large")) {
+			return "File too large";
+		}
+		return "Preview failed";
+	}
+
+	private static List<String> wrapMessage(String message, int maxChars) {
+		List<String> wrapped = new ArrayList<>();
+		if (message == null || message.isBlank()) {
+			return wrapped;
+		}
+
+		String normalized = message.replace('\r', ' ').replace('\n', ' ').trim();
+		String[] words = normalized.split("\\s+");
+		StringBuilder line = new StringBuilder();
+		for (String word : words) {
+			if (line.isEmpty()) {
+				line.append(word);
+				continue;
+			}
+			if (line.length() + 1 + word.length() <= maxChars) {
+				line.append(' ').append(word);
+				continue;
+			}
+			wrapped.add(line.toString());
+			line = new StringBuilder(word);
+		}
+		if (!line.isEmpty()) {
+			wrapped.add(line.toString());
+		}
+
+		if (wrapped.size() > 4) {
+			List<String> shortened = new ArrayList<>(wrapped.subList(0, 4));
+			int last = shortened.size() - 1;
+			shortened.set(last, ellipsize(shortened.get(last), maxChars));
+			return shortened;
+		}
+		return wrapped;
+	}
+
+	private static String ellipsize(String text, int maxChars) {
+		if (text.length() <= maxChars) {
+			return text;
+		}
+		return text.substring(0, Math.max(0, maxChars - 1)).trim() + "\u2026";
 	}
 }

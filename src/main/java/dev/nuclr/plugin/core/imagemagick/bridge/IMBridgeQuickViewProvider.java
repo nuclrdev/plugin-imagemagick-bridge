@@ -3,7 +3,7 @@ package dev.nuclr.plugin.core.imagemagick.bridge;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
@@ -12,11 +12,12 @@ import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import javax.swing.filechooser.FileNameExtensionFilter;
 
+import org.apache.commons.io.FilenameUtils;
+
 import dev.nuclr.platform.NuclrThemeScheme;
-import dev.nuclr.platform.plugin.NuclrMenuResource;
-import dev.nuclr.platform.plugin.NuclrPlugin;
 import dev.nuclr.platform.plugin.NuclrPluginContext;
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
+import dev.nuclr.platform.plugin.QuickViewNuclrPlugin;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.DefaultMagickRunner;
 import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
@@ -36,11 +37,11 @@ import lombok.extern.slf4j.Slf4j;
  *       disabled silently.</li>
  * </ol>
  *
- * <p>{@link #supports(NuclrResourcePath)} is always fast (no I/O) - it reads the
+ * <p>{@link #supports(NuclrResource)} is always fast (no I/O) - it reads the
  * volatile extension set populated by the background thread.
  */
 @Slf4j
-public class IMBridgeQuickViewProvider implements NuclrPlugin {
+public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
     private static final String THEME_UPDATED_EVENT_TYPE = "dev.nuclr.platform.theme.updated";
 
@@ -49,6 +50,7 @@ public class IMBridgeQuickViewProvider implements NuclrPlugin {
     private IMBridgeViewPanel panel;
     private volatile AtomicBoolean currentCancelled;
     private NuclrThemeScheme theme;
+    private NuclrResource currentResource;
 
     /** Called by the host PluginLoader via reflection — zero-arg constructor required. */
     public IMBridgeQuickViewProvider() {
@@ -144,13 +146,19 @@ public class IMBridgeQuickViewProvider implements NuclrPlugin {
      * populates the supported-extension set.
      */
     @Override
-    public boolean supports(NuclrResourcePath resource) {
-        if (resource == null || resource.getExtension() == null) {
+    public boolean supports(Path resource) {
+        String extension = extension(resource);
+        if (extension == null) {
             return false;
         }
         return service.getSupportedExtensions()
-                .contains(resource.getExtension().toLowerCase());
+                .contains(extension.toLowerCase());
     }
+
+	private static String extension(Path path) {
+		var name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
+		return FilenameUtils.getExtension(name);
+	}
 
     @Override
     public JComponent panel() {
@@ -161,20 +169,25 @@ public class IMBridgeQuickViewProvider implements NuclrPlugin {
     }
 
     @Override
-    public List<NuclrMenuResource> menuItems(NuclrResourcePath source) {
-        return List.of();
-    }
-
-    @Override
-    public void load(NuclrPluginContext context, boolean template) {
+    public void preinit(NuclrPluginContext context) {
         this.context = context;
     }
 
     @Override
-    public boolean openResource(NuclrResourcePath item, AtomicBoolean cancelled) {
+    public void init() {
+    }
+
+    @Override
+    public NuclrPluginContext getContext() {
+        return this.context;
+    }
+
+    @Override
+    public boolean openResource(NuclrResource item, AtomicBoolean cancelled) {
         if (currentCancelled != null) {
             currentCancelled.set(true);
         }
+        currentResource = item;
         currentCancelled = cancelled;
         panel();
         return panel.load(item, cancelled);
@@ -273,12 +286,22 @@ public class IMBridgeQuickViewProvider implements NuclrPlugin {
 	}
 
 	@Override
-	public Developer type() {
+	public Developer developer() {
 		return Developer.Official;
 	}
 
 	@Override
 	public void updateTheme(NuclrThemeScheme themeScheme) {
-		
+
+	}
+
+	@Override
+	public NuclrResource getCurrentResource() {
+		return currentResource;
+	}
+
+	@Override
+	public String uuid() {
+		return UUID.randomUUID().toString();
 	}
 }

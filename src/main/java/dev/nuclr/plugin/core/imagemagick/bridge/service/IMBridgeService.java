@@ -14,7 +14,7 @@ import java.util.Set;
 
 import javax.imageio.ImageIO;
 
-import dev.nuclr.platform.plugin.NuclrResourcePath;
+import dev.nuclr.platform.plugin.NuclrResource;
 import dev.nuclr.plugin.core.imagemagick.bridge.config.IMBridgeConfig;
 import lombok.extern.slf4j.Slf4j;
 
@@ -27,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
  *   <li>Construct with a {@link IMBridgeConfig} and a {@link MagickRunner}.</li>
  *   <li>Call {@link #init()} (typically on a background thread) — locates the
  *       {@code magick} binary and populates the supported-extension set.</li>
- *   <li>Call {@link #convertToPng(NuclrResourcePath)} from any thread for each preview
+ *   <li>Call {@link #convertToPng(NuclrResource)} from any thread for each preview
  *       request; the result is a path to a cached PNG that can be read with
  *       {@code ImageIO.read()}.</li>
  * </ol>
@@ -147,14 +147,25 @@ public final class IMBridgeService {
      * @throws IllegalArgumentException if the file exceeds the configured size limit
      * @throws IOException              on I/O or conversion failure
      */
-    public BufferedImage convertToPng(NuclrResourcePath item) throws Exception {
+    private static String extension(NuclrResource item) {
+        String name = item != null ? item.getName() : null;
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot < name.length() - 1) {
+                return name.substring(dot + 1);
+            }
+        }
+        return "tmp";
+    }
+
+    public BufferedImage convertToPng(NuclrResource item) throws Exception {
         if (!isReady()) {
             throw new IllegalStateException(
                     initError != null ? initError : "ImageMagick not yet initialised");
         }
 
         // Enforce input-size guard (best-effort — sizeBytes may be 0 if unknown)
-        long reportedSize = item.getSizeBytes();
+        long reportedSize = item.getLength();
         if (config.getMaxInputSizeBytes() > 0
                 && reportedSize > 0
                 && reportedSize > config.getMaxInputSizeBytes()) {
@@ -164,11 +175,11 @@ public final class IMBridgeService {
                     config.getMaxInputSizeBytes() / 1_048_576.0));
         }
 
-        Path tempInput  = Files.createTempFile("imbridge-in-",  "." + item.getExtension());
+        Path tempInput  = Files.createTempFile("imbridge-in-",  "." + extension(item));
         Path tempOutput = Files.createTempFile("imbridge-out-", ".png");
         try {
             // Write item stream to the temp input file
-            try (InputStream in = item.openStream()) {
+            try (InputStream in = item.openInputStream()) {
                 Files.copy(in, tempInput, StandardCopyOption.REPLACE_EXISTING);
             }
 
