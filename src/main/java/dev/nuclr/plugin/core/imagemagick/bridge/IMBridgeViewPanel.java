@@ -6,6 +6,7 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,6 +39,14 @@ public class IMBridgeViewPanel extends JPanel {
 
 	private static final int MESSAGE_WRAP_WIDTH = 56;
 
+	/** Zoom multiplier applied on top of the fit-to-panel scale; 1.0 == fit. */
+	private static final double MIN_ZOOM = 0.05;
+	private static final double MAX_ZOOM = 16.0;
+	private static final double ZOOM_STEP = 1.1;
+	/** Effective scales within this band of 100% snap to exactly 100% (actual pixels). */
+	private static final double SNAP_LOW = 0.95;
+	private static final double SNAP_HIGH = 1.05;
+
 	private Color backgroundColor = Color.BLACK;
 	private Color errorColor = new Color(200, 80, 80);
 	private Color loadingColor = new Color(140, 140, 140);
@@ -52,10 +61,14 @@ public class IMBridgeViewPanel extends JPanel {
 	private volatile boolean loading;
 	private volatile Thread loadingThread;
 
+	/** User zoom factor relative to the fit-to-panel scale; 1.0 == fit. */
+	private double zoomMultiplier = 1.0;
+
 	public IMBridgeViewPanel(IMBridgeService service) {
 		this.service = service;
 		setBackground(backgroundColor);
 		setOpaque(true);
+		addMouseWheelListener(this::onMouseWheel);
 	}
 
 	public void applyTheme(NuclrThemeScheme theme) {
@@ -86,6 +99,7 @@ public class IMBridgeViewPanel extends JPanel {
 		image = null;
 		statusMessage = null;
 		loading = true;
+		zoomMultiplier = 1.0;
 		repaint();
 
 		loadingThread = Thread.ofVirtual()
@@ -103,7 +117,51 @@ public class IMBridgeViewPanel extends JPanel {
 		image = null;
 		statusMessage = null;
 		loading = false;
+		zoomMultiplier = 1.0;
 		repaint();
+	}
+
+	// -------------------------------------------------------------------------
+	// Zoom
+
+	private void onMouseWheel(MouseWheelEvent e) {
+		if (!e.isControlDown() || image == null) {
+			// Not a zoom gesture: let an ancestor (e.g. a scroll pane) handle it.
+			java.awt.Container parent = getParent();
+			if (parent != null) {
+				parent.dispatchEvent(SwingUtilities.convertMouseEvent(this, e, parent));
+			}
+			return;
+		}
+		double base = baseFitScale();
+		if (base <= 0) {
+			return;
+		}
+		// Negative rotation == wheel up == zoom in.
+		double current = base * zoomMultiplier;
+		double next = current * Math.pow(ZOOM_STEP, -e.getWheelRotation());
+		next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
+		if (next >= SNAP_LOW && next <= SNAP_HIGH) {
+			next = 1.0; // snap to actual pixels
+		}
+		zoomMultiplier = next / base;
+		repaint();
+	}
+
+	/** Fit-to-panel scale (contain, never upscaling) used as the 1.0 zoom baseline. */
+	private double baseFitScale() {
+		BufferedImage img = image;
+		if (img == null) {
+			return 0;
+		}
+		int panelW = getWidth();
+		int panelH = getHeight();
+		int imgW = img.getWidth();
+		int imgH = img.getHeight();
+		if (panelW <= 0 || panelH <= 0 || imgW <= 0 || imgH <= 0) {
+			return 0;
+		}
+		return Math.min(1.0, Math.min((double) panelW / imgW, (double) panelH / imgH));
 	}
 
 	// -------------------------------------------------------------------------
@@ -165,30 +223,23 @@ public class IMBridgeViewPanel extends JPanel {
 		if (loading) {
 			drawCenteredText(g, "Converting\u2026", loadingColor);
 		} else if (image != null) {
-			drawImage((Graphics2D) g);
+			double scale = baseFitScale() * zoomMultiplier;
+			drawImage((Graphics2D) g, scale);
+			drawZoomBadge((Graphics2D) g.create(), scale);
 		} else if (statusMessage != null) {
 			drawErrorCard((Graphics2D) g.create(), statusMessage);
 		}
 	}
 
-	private void drawImage(Graphics2D g2orig) {
+	private void drawImage(Graphics2D g2orig, double scale) {
 		final int panelW = getWidth();
 		final int panelH = getHeight();
 		final int imgW = image.getWidth();
 		final int imgH = image.getHeight();
 
-		if (panelW <= 0 || panelH <= 0 || imgW <= 0 || imgH <= 0) {
+		if (panelW <= 0 || panelH <= 0 || imgW <= 0 || imgH <= 0 || scale <= 0) {
 			return;
 		}
-
-		// Fit-inside (contain) scaling — never upscale
-		double scale = Math
-				.min(
-						1.0,
-						Math
-								.min(
-										(double) panelW / imgW,
-										(double) panelH / imgH));
 
 		int drawW = (int) Math.round(imgW * scale);
 		int drawH = (int) Math.round(imgH * scale);
@@ -212,6 +263,44 @@ public class IMBridgeViewPanel extends JPanel {
 							RenderingHints.KEY_ANTIALIASING,
 							RenderingHints.VALUE_ANTIALIAS_ON);
 			g2.drawImage(image, x, y, drawW, drawH, null);
+		} finally {
+			g2.dispose();
+		}
+	}
+
+	/** Draws the current zoom percentage as a small pill in the bottom-right corner. */
+	private void drawZoomBadge(Graphics2D g2, double scale) {
+		try {
+			if (scale <= 0) {
+				return;
+			}
+			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+			String text = Math.round(scale * 100) + "%";
+			Font font = (getFont() != null ? getFont() : new Font(Font.DIALOG, Font.PLAIN, 12))
+					.deriveFont(Font.BOLD, 12f);
+			g2.setFont(font);
+			FontMetrics fm = g2.getFontMetrics(font);
+
+			int padX = 8;
+			int padY = 4;
+			int pillW = fm.stringWidth(text) + padX * 2;
+			int pillH = fm.getHeight() + padY * 2;
+			int margin = 10;
+			int pillX = getWidth() - pillW - margin;
+			int pillY = getHeight() - pillH - margin;
+			int arc = pillH;
+
+			g2.setColor(cardBackgroundColor);
+			g2.fillRoundRect(pillX, pillY, pillW, pillH, arc, arc);
+			g2.setColor(cardBorderColor);
+			g2.drawRoundRect(pillX, pillY, pillW, pillH, arc, arc);
+
+			g2.setColor(detailColor);
+			int textX = pillX + padX;
+			int textY = pillY + padY + fm.getAscent();
+			g2.drawString(text, textX, textY);
 		} finally {
 			g2.dispose();
 		}
