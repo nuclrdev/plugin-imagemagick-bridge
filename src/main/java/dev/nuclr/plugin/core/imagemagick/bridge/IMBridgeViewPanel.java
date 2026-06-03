@@ -6,7 +6,13 @@ import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Cursor;
+import java.awt.Image;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
+import java.awt.datatransfer.Clipboard;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
@@ -15,7 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
 
 import dev.nuclr.platform.NuclrThemeScheme;
@@ -74,10 +82,15 @@ public class IMBridgeViewPanel extends JPanel {
 	private int dragStartY;
 	private boolean dragging;
 
+	private final JPopupMenu contextMenu = new JPopupMenu();
+	private final JMenuItem copyImageItem = new JMenuItem("Copy image to clipboard");
+
 	public IMBridgeViewPanel(IMBridgeService service) {
 		this.service = service;
 		setBackground(backgroundColor);
 		setOpaque(true);
+		copyImageItem.addActionListener(e -> copyImageToClipboard());
+		contextMenu.add(copyImageItem);
 		addMouseWheelListener(this::onMouseWheel);
 		installPanHandlers();
 	}
@@ -86,6 +99,9 @@ public class IMBridgeViewPanel extends JPanel {
 		MouseAdapter panHandler = new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
+				if (maybeShowPopup(e)) {
+					return;
+				}
 				if (SwingUtilities.isMiddleMouseButton(e) && image != null) {
 					dragging = true;
 					dragStartX = e.getX();
@@ -108,6 +124,9 @@ public class IMBridgeViewPanel extends JPanel {
 
 			@Override
 			public void mouseReleased(MouseEvent e) {
+				if (maybeShowPopup(e)) {
+					return;
+				}
 				if (dragging && SwingUtilities.isMiddleMouseButton(e)) {
 					dragging = false;
 					setCursor(Cursor.getDefaultCursor());
@@ -116,6 +135,60 @@ public class IMBridgeViewPanel extends JPanel {
 		};
 		addMouseListener(panHandler);
 		addMouseMotionListener(panHandler);
+	}
+
+	/** Shows the context menu if {@code e} is the platform popup trigger. */
+	private boolean maybeShowPopup(MouseEvent e) {
+		if (!e.isPopupTrigger()) {
+			return false;
+		}
+		copyImageItem.setEnabled(image != null);
+		contextMenu.show(this, e.getX(), e.getY());
+		return true;
+	}
+
+	// -------------------------------------------------------------------------
+	// Clipboard
+
+	private void copyImageToClipboard() {
+		BufferedImage img = image;
+		if (img == null) {
+			return;
+		}
+		try {
+			Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+			clipboard.setContents(new ImageTransferable(img), null);
+		} catch (Exception ex) {
+			log.warn("ImageMagick Bridge: failed to copy image to clipboard: {}", ex.getMessage());
+			log.debug("ImageMagick Bridge clipboard error detail", ex);
+		}
+	}
+
+	/** Minimal {@link Transferable} exposing a single image via {@link DataFlavor#imageFlavor}. */
+	private static final class ImageTransferable implements Transferable {
+		private final Image image;
+
+		ImageTransferable(Image image) {
+			this.image = image;
+		}
+
+		@Override
+		public DataFlavor[] getTransferDataFlavors() {
+			return new DataFlavor[] { DataFlavor.imageFlavor };
+		}
+
+		@Override
+		public boolean isDataFlavorSupported(DataFlavor flavor) {
+			return DataFlavor.imageFlavor.equals(flavor);
+		}
+
+		@Override
+		public Object getTransferData(DataFlavor flavor) throws UnsupportedFlavorException {
+			if (!DataFlavor.imageFlavor.equals(flavor)) {
+				throw new UnsupportedFlavorException(flavor);
+			}
+			return image;
+		}
 	}
 
 	public void applyTheme(NuclrThemeScheme theme) {
