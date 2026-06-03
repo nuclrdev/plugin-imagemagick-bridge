@@ -5,7 +5,10 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Cursor;
 import java.awt.RenderingHints;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -64,11 +67,55 @@ public class IMBridgeViewPanel extends JPanel {
 	/** User zoom factor relative to the fit-to-panel scale; 1.0 == fit. */
 	private double zoomMultiplier = 1.0;
 
+	/** Pan offset (pixels) applied on top of the centered image position. */
+	private int panX = 0;
+	private int panY = 0;
+	private int dragStartX;
+	private int dragStartY;
+	private boolean dragging;
+
 	public IMBridgeViewPanel(IMBridgeService service) {
 		this.service = service;
 		setBackground(backgroundColor);
 		setOpaque(true);
 		addMouseWheelListener(this::onMouseWheel);
+		installPanHandlers();
+	}
+
+	private void installPanHandlers() {
+		MouseAdapter panHandler = new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				if (SwingUtilities.isMiddleMouseButton(e) && image != null) {
+					dragging = true;
+					dragStartX = e.getX();
+					dragStartY = e.getY();
+					setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+				}
+			}
+
+			@Override
+			public void mouseDragged(MouseEvent e) {
+				if (!dragging) {
+					return;
+				}
+				panX += e.getX() - dragStartX;
+				panY += e.getY() - dragStartY;
+				dragStartX = e.getX();
+				dragStartY = e.getY();
+				repaint();
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent e) {
+				if (dragging && SwingUtilities.isMiddleMouseButton(e)) {
+					dragging = false;
+					setCursor(Cursor.getDefaultCursor());
+				}
+			}
+		};
+		addMouseListener(panHandler);
+		addMouseMotionListener(panHandler);
 	}
 
 	public void applyTheme(NuclrThemeScheme theme) {
@@ -100,6 +147,8 @@ public class IMBridgeViewPanel extends JPanel {
 		statusMessage = null;
 		loading = true;
 		zoomMultiplier = 1.0;
+		panX = 0;
+		panY = 0;
 		repaint();
 
 		loadingThread = Thread.ofVirtual()
@@ -118,6 +167,9 @@ public class IMBridgeViewPanel extends JPanel {
 		statusMessage = null;
 		loading = false;
 		zoomMultiplier = 1.0;
+		panX = 0;
+		panY = 0;
+		dragging = false;
 		repaint();
 	}
 
@@ -243,8 +295,8 @@ public class IMBridgeViewPanel extends JPanel {
 
 		int drawW = (int) Math.round(imgW * scale);
 		int drawH = (int) Math.round(imgH * scale);
-		int x = (panelW - drawW) / 2;
-		int y = (panelH - drawH) / 2;
+		int x = (panelW - drawW) / 2 + panX;
+		int y = (panelH - drawH) / 2 + panY;
 
 		Graphics2D g2 = (Graphics2D) g2orig.create();
 		try {
