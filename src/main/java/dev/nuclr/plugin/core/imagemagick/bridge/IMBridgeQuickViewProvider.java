@@ -24,206 +24,225 @@ import dev.nuclr.plugin.core.imagemagick.bridge.service.IMBridgeService;
 import lombok.extern.slf4j.Slf4j;
 
 /**
- * {@link QuickViewProviderPlugin} entry point for the ImageMagick Bridge plugin.
+ * {@link QuickViewProviderPlugin} entry point for the ImageMagick Bridge
+ * plugin.
  *
- * <p>Initialisation (background virtual thread):
+ * <p>
+ * Initialisation (background virtual thread):
  * <ol>
- *   <li>Auto-detects the {@code magick} binary (saved preference → config →
- *       OS PATH → well-known dirs).</li>
- *   <li>If detection fails, shows a {@link JFileChooser} on the EDT so the user
- *       can locate the executable manually.  A valid selection is persisted via
- *       {@code java.util.prefs.Preferences} and used on every subsequent launch.</li>
- *   <li>If the user cancels or the chosen file is invalid the plugin stays
- *       disabled silently.</li>
+ * <li>Auto-detects the {@code magick} binary (saved preference → config → OS
+ * PATH → well-known dirs).</li>
+ * <li>If detection fails, shows a {@link JFileChooser} on the EDT so the user
+ * can locate the executable manually. A valid selection is persisted via
+ * {@code java.util.prefs.Preferences} and used on every subsequent launch.</li>
+ * <li>If the user cancels or the chosen file is invalid the plugin stays
+ * disabled silently.</li>
  * </ol>
  *
- * <p>{@link #supports(NuclrResource)} is always fast (no I/O) - it reads the
+ * <p>
+ * {@link #supports(NuclrResource)} is always fast (no I/O) - it reads the
  * volatile extension set populated by the background thread.
  */
 @Slf4j
 public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
-    private static final String THEME_UPDATED_EVENT_TYPE = "dev.nuclr.platform.theme.updated";
+	private static final String THEME_UPDATED_EVENT_TYPE = "dev.nuclr.platform.theme.updated";
 
-    private final IMBridgeService service;
-    private NuclrPluginContext context;
-    private IMBridgeViewPanel panel;
-    private volatile AtomicBoolean currentCancelled;
-    private NuclrThemeScheme theme;
-    private NuclrResource currentResource;
+	private final IMBridgeService service;
+	private NuclrPluginContext context;
+	private IMBridgeViewPanel panel;
+	private volatile AtomicBoolean currentCancelled;
+	private NuclrThemeScheme theme;
+	private NuclrResource currentResource;
 
-    /** Called by the host PluginLoader via reflection — zero-arg constructor required. */
-    public IMBridgeQuickViewProvider() {
-        IMBridgeConfig config = new IMBridgeConfig();
-        this.service = new IMBridgeService(config, new DefaultMagickRunner());
-        Thread.ofVirtual()
-                .name("imbridge-init")
-                .start(this::initWithFallback);
-    }
+	/**
+	 * Called by the host PluginLoader via reflection — zero-arg constructor
+	 * required.
+	 */
+	public IMBridgeQuickViewProvider() {
+		IMBridgeConfig config = new IMBridgeConfig();
+		this.service = new IMBridgeService(config, new DefaultMagickRunner());
+		Thread.ofVirtual().name("imbridge-init").start(this::initWithFallback);
+	}
 
-    /** Package-private: inject a pre-configured service for tests. */
-    IMBridgeQuickViewProvider(IMBridgeService service) {
-        this.service = service;
-    }
+	/** Package-private: inject a pre-configured service for tests. */
+	IMBridgeQuickViewProvider(IMBridgeService service) {
+		this.service = service;
+	}
 
-    // -------------------------------------------------------------------------
-    // Initialisation
+	// -------------------------------------------------------------------------
+	// Initialisation
 
-    private void initWithFallback() {
-        service.init();
-        if (service.isReady()) {
-            return;
-        }
+	private void initWithFallback() {
+		service.init();
+		if (service.isReady()) {
+			return;
+		}
 
-        // Auto-detection failed — ask the user to locate the executable
-        log.info("ImageMagick not found automatically; showing file picker");
-        Path chosen = showLocateDialog();
-        if (chosen == null) {
-            log.info("User cancelled the ImageMagick file picker; plugin disabled");
-            return;
-        }
+		// Auto-detection failed — ask the user to locate the executable
+		log.info("ImageMagick not found automatically; showing file picker");
+		Path chosen = showLocateDialog();
+		if (chosen == null) {
+			log.info("User cancelled the ImageMagick file picker; plugin disabled");
+			return;
+		}
 
-        try {
-            service.initWithUserSelectedPath(chosen);
-            log.info("ImageMagick Bridge initialised with user-selected path: {}", chosen);
-        } catch (Exception e) {
-            log.warn("User-selected path '{}' rejected: {}", chosen, e.getMessage());
-            showError("Not a valid ImageMagick 7 executable:\n" + chosen + "\n\n" + e.getMessage());
-        }
-    }
+		try {
+			service.initWithUserSelectedPath(chosen);
+			log.info("ImageMagick Bridge initialised with user-selected path: {}", chosen);
+		} catch (Exception e) {
+			log.warn("User-selected path '{}' rejected: {}", chosen, e.getMessage());
+			showError("Not a valid ImageMagick 7 executable:\n" + chosen + "\n\n" + e.getMessage());
+		}
+	}
 
-    /**
-     * Blocks the calling (virtual) thread while the file chooser runs on the EDT.
-     * Returns the chosen {@link Path}, or {@code null} if the user cancelled.
-     */
-    private static Path showLocateDialog() {
-        Path[] result = {null};
-        try {
-            SwingUtilities.invokeAndWait(() -> {
-                JFileChooser chooser = new JFileChooser();
-                chooser.setDialogTitle("Locate ImageMagick 7 executable (magick / magick.exe)");
-                chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-                chooser.setApproveButtonText("Use this executable");
+	/**
+	 * Blocks the calling (virtual) thread while the file chooser runs on the EDT.
+	 * Returns the chosen {@link Path}, or {@code null} if the user cancelled.
+	 */
+	private static Path showLocateDialog() {
+		Path[] result = { null };
+		try {
+			SwingUtilities.invokeAndWait(() -> {
+				JFileChooser chooser = new JFileChooser();
+				chooser.setDialogTitle("Locate ImageMagick 7 executable (magick / magick.exe)");
+				chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+				chooser.setApproveButtonText("Use this executable");
 
-                if (isWindows()) {
-                    // Start the user in Program Files where IM7 typically installs
-                    File programFiles = new File("C:\\Program Files");
-                    if (programFiles.isDirectory()) {
-                        chooser.setCurrentDirectory(programFiles);
-                    }
-                    chooser.setFileFilter(
-                            new FileNameExtensionFilter("Executable (*.exe)", "exe"));
-                } else {
-                    chooser.setCurrentDirectory(new File("/usr/local/bin"));
-                }
+				if (isWindows()) {
+					// Start the user in Program Files where IM7 typically installs
+					File programFiles = new File("C:\\Program Files");
+					if (programFiles.isDirectory()) {
+						chooser.setCurrentDirectory(programFiles);
+					}
+					chooser.setFileFilter(new FileNameExtensionFilter("Executable (*.exe)", "exe"));
+				} else {
+					chooser.setCurrentDirectory(new File("/usr/local/bin"));
+				}
 
-                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                    result[0] = chooser.getSelectedFile().toPath();
-                }
-            });
-        } catch (InvocationTargetException e) {
-            log.error("Exception inside file-picker dialog", e.getCause());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        return result[0];
-    }
+				if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+					result[0] = chooser.getSelectedFile().toPath();
+				}
+			});
+		} catch (InvocationTargetException e) {
+			log.error("Exception inside file-picker dialog", e.getCause());
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+		}
+		return result[0];
+	}
 
-    private static void showError(String message) {
-        SwingUtilities.invokeLater(() ->
-                JOptionPane.showMessageDialog(
-                        null, message,
-                        "ImageMagick Bridge",
-                        JOptionPane.ERROR_MESSAGE));
-    }
+	private static void showError(String message) {
+		SwingUtilities.invokeLater(
+				() -> JOptionPane.showMessageDialog(null, message, "ImageMagick Bridge", JOptionPane.ERROR_MESSAGE));
+	}
 
-    private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase().startsWith("win");
-    }
+	private static boolean isWindows() {
+		return System.getProperty("os.name", "").toLowerCase().startsWith("win");
+	}
 
-    /**
-     * Fast check — no I/O.  Returns {@code false} until the background init
-     * populates the supported-extension set.
-     */
-    @Override
-    public boolean supports(Path resource) {
-        String extension = extension(resource);
-        if (extension == null) {
-            return false;
-        }
-        return service.getSupportedExtensions()
-                .contains(extension.toLowerCase());
-    }
+	/**
+	 * Fast check — no I/O. Returns {@code false} until the background init
+	 * populates the supported-extension set.
+	 */
+	@Override
+	public boolean supports(NuclrResource resource) {
+
+		String extension = extension(resource);
+
+		if (extension == null) {
+			var path = resource.getPath();
+			extension = extension(path);
+		}
+
+		if (extension == null) {
+			return false;
+		}
+
+		return service.getSupportedExtensions().contains(extension.toLowerCase());
+	}
+
+	private static String extension(NuclrResource resource) {
+		if (resource == null || resource.getName() == null) {
+			return null;
+		}
+		String name = resource.getName();
+		int dot = name.lastIndexOf('.');
+		if (dot < 0 || dot == name.length() - 1) {
+			return null;
+		}
+		return name.substring(dot + 1);
+	}
 
 	private static String extension(Path path) {
 		var name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 		return FilenameUtils.getExtension(name);
 	}
 
-    @Override
-    public JComponent panel() {
-        if (panel == null) {
-            panel = new IMBridgeViewPanel(service);
-        }
-        return panel;
-    }
+	@Override
+	public JComponent panel() {
+		if (panel == null) {
+			panel = new IMBridgeViewPanel(service);
+		}
+		return panel;
+	}
 
-    @Override
-    public void preinit(NuclrPluginContext context) {
-        this.context = context;
-    }
+	@Override
+	public void preinit(NuclrPluginContext context) {
+		this.context = context;
+	}
 
-    @Override
-    public void init() {
-    }
+	@Override
+	public void init() {
+	}
 
-    @Override
-    public NuclrPluginContext getContext() {
-        return this.context;
-    }
+	@Override
+	public NuclrPluginContext getContext() {
+		return this.context;
+	}
 
-    @Override
-    public boolean openResource(NuclrResource item, AtomicBoolean cancelled) {
-        if (currentCancelled != null) {
-            currentCancelled.set(true);
-        }
-        currentResource = item;
-        currentCancelled = cancelled;
-        panel();
-        return panel.load(item, cancelled);
-    }
+	@Override
+	public boolean openResource(NuclrResource item, AtomicBoolean cancelled) {
+		if (currentCancelled != null) {
+			currentCancelled.set(true);
+		}
+		currentResource = item;
+		currentCancelled = cancelled;
+		panel();
+		return panel.load(item, cancelled);
+	}
 
-    @Override
-    public void closeResource() {
-        if (currentCancelled != null) {
-            currentCancelled.set(true);
-            currentCancelled = null;
-        }
-        if (panel != null) {
-            panel.clear();
-        }
-    }
+	@Override
+	public void closeResource() {
+		if (currentCancelled != null) {
+			currentCancelled.set(true);
+			currentCancelled = null;
+		}
+		if (panel != null) {
+			panel.clear();
+		}
+	}
 
-    @Override
-    public void unload() {
-    	closeResource();
-        panel = null;
-        context = null;
-    }
+	@Override
+	public void unload() {
+		closeResource();
+		panel = null;
+		context = null;
+	}
 
-    @Override
+	@Override
 	public int priority() {
 		return 50;
 	}
 
-    @Override
-    public boolean onFocusGained() {
-    		return false;
-    }
+	@Override
+	public boolean onFocusGained() {
+		return false;
+	}
 
-    @Override
-    public void onFocusLost() {
-    }
+	@Override
+	public void onFocusLost() {
+	}
 
 	@Override
 	public boolean isFocused() {
