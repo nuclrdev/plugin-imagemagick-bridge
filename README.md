@@ -1,6 +1,6 @@
 # 🖼️ ImageMagick Bridge
 
-> A Nuclr Commander QuickView plugin that unlocks preview support for image formats handled by your local ImageMagick installation.
+> A [Nuclr Commander](https://nuclr.dev) QuickView plugin that unlocks preview support for image formats handled by your local ImageMagick installation.
 
 ![Screenshot 1](images/screenshot-1.jpg)
 
@@ -43,39 +43,26 @@ For multi-frame or layered formats, the plugin requests only the first frame/lay
 ## ✅ Requirements
 
 - ☕ Java 21
-- 🧰 Maven
-- 🖼️ ImageMagick 7 installed on the host system
-- 🧭 Nuclr Commander with plugin support
+- 🖼️ ImageMagick 7 installed on the host system (`magick` on `PATH` or in a common location)
 
-## 📦 Installation
-
-### For End Users
+## 📥 Installation
 
 1. Install **ImageMagick 7** on your system.
 2. Make sure the `magick` executable is available.
-3. Copy the packaged plugin ZIP into your Nuclr Commander plugins directory.
-4. Start Nuclr Commander.
+3. Copy the signed plugin archive and detached signature into the Nuclr Commander `plugins/` directory:
 
-If auto-detection fails, the plugin opens a file picker so the user can point it to `magick` or `magick.exe`.
-
-### For Developers
-
-Build the plugin with Maven:
-
-```bash
-mvn clean package
+```text
+quick-view-imagemagick-<version>.zip
+quick-view-imagemagick-<version>.zip.sig
 ```
 
-Packaged output is written under `target/`, including:
+Nuclr Commander verifies the RSA-SHA256 signature against `nuclr-cert.pem` on load.
 
-- `imagemagick-bridge-1.0.0.jar`
-- `imagemagick-bridge-1.0.0.zip`
-
-The repo also includes `deploy.bat`, which runs `mvn clean verify` and copies the ZIP and signature into a local Nuclr Commander plugin folder.
+If auto-detection fails on first use, the plugin opens a file picker so you can point it to `magick` or `magick.exe`.
 
 ## ⚙️ Configuration
 
-The plugin reads optional settings from `src/main/resources/imagemagick-bridge.properties`.
+The plugin reads optional settings from `imagemagick-bridge.properties` in the platform config directory.
 
 ```properties
 # Full path to the magick (IM7) executable.
@@ -100,60 +87,45 @@ threadLimit=1
 maxPixelDimension=2048
 ```
 
-### Setting Notes
-
-- ⏱️ `conversionTimeoutSeconds`: Fails slow conversions before they hang the preview panel
-- 📏 `maxInputSizeBytes`: Rejects very large files before conversion
-- 🧮 `memoryLimit`, `mapLimit`, `diskLimit`: Passed through to ImageMagick as `-limit` flags
-- 🧵 `threadLimit`: Keeps conversion resource usage predictable
-- 🖼️ `maxPixelDimension`: Shrinks oversized images without upscaling smaller ones
-
-## 🛠️ Development
-
-### Run Tests
-
-```bash
-mvn test
-```
-
-### Package
-
-```bash
-mvn clean package -DskipTests
-```
-
-### Verify and Sign
-
-```bash
-mvn clean verify -Djarsigner.storepass=...
-```
-
-The `verify` phase in this repo also generates a detached signature for the plugin ZIP using a local PKCS#12 keystore path configured in the Maven build.
-
-## 🧪 Behavior Details
-
-- 📚 Supported extensions are discovered dynamically from the installed ImageMagick binary
-- 🎯 Preview generation targets the first frame/layer only
-- 🧼 Temporary input/output files are deleted after each conversion
-- 🧵 Initialization and loading run on virtual threads
-- 🎨 The preview panel follows Nuclr Commander theme updates
-- ❌ If ImageMagick is unavailable, the plugin stays disabled instead of crashing the host
+| Setting | Default | Notes |
+|---|---|---|
+| `conversionTimeoutSeconds` | `30` | Fails slow conversions before they hang the preview panel |
+| `maxInputSizeBytes` | `536870912` | Rejects very large files before conversion |
+| `threadLimit` | `1` | Keeps conversion resource usage predictable |
+| `maxPixelDimension` | `2048` | Down-scales oversized images; never upscales |
 
 ## ⚠️ Limitations
 
-- The plugin requires **ImageMagick 7** specifically
-- Preview success depends on delegates/codecs available in the installed ImageMagick build
-- Some complex or extremely large formats may still fail due to resource limits or conversion timeouts
+- Requires **ImageMagick 7** specifically
+- Preview success depends on delegates/codecs in the installed ImageMagick build
 - Animated or multi-page formats are previewed as their first frame/page only
+- If ImageMagick is unavailable, the plugin stays disabled instead of crashing the host
 
-## 📁 Project Layout
+## 🗂️ Source Layout
 
 ```text
-src/main/java        Plugin code
-src/main/resources   Plugin metadata, packaged README, defaults
-src/test/java        Unit tests
-images/              README screenshots
+src/main/java/dev/nuclr/plugin/core/imagemagick/bridge/
+├── IMBridgeQuickViewProvider.java   plugin entry point
+├── IMBridgeViewPanel.java           Swing preview panel
+├── config/
+│   └── IMBridgeConfig.java          configuration model
+└── service/
+    ├── FormatRegistry.java          discovered format set
+    ├── IMBridgeService.java         conversion orchestration
+    ├── MagickLocator.java           ImageMagick binary detection
+    ├── MagickPreferences.java       persistent preferences
+    ├── MagickRunner.java            runner interface
+    ├── DefaultMagickRunner.java     production runner (shells to magick)
+    └── RunResult.java               execution result model
 ```
+
+## 📚 Dependencies
+
+All dependencies are provided by Nuclr Commander at runtime — nothing extra is bundled in the plugin ZIP.
+
+| Library | Version | Purpose |
+|---|---|---|
+| `dev.nuclr:platform-sdk` | `3.0.1` | Nuclr platform interfaces |
 
 ## 📄 License
 

@@ -30,8 +30,8 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * Initialisation (background virtual thread):
  * <ol>
- * <li>Auto-detects the {@code magick} binary (saved preference → config → OS
- * PATH → well-known dirs).</li>
+ * <li>Auto-detects the {@code magick} binary (saved preference â†’ config â†’ OS
+ * PATH â†’ well-known dirs).</li>
  * <li>If detection fails, shows a {@link JFileChooser} on the EDT so the user
  * can locate the executable manually. A valid selection is persisted via
  * {@code java.util.prefs.Preferences} and used on every subsequent launch.</li>
@@ -56,7 +56,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	private NuclrResource currentResource;
 
 	/**
-	 * Called by the host PluginLoader via reflection — zero-arg constructor
+	 * Called by the host PluginLoader via reflection â€” zero-arg constructor
 	 * required.
 	 */
 	public IMBridgeQuickViewProvider() {
@@ -79,7 +79,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 			return;
 		}
 
-		// Auto-detection failed — ask the user to locate the executable
+		// Auto-detection failed â€” ask the user to locate the executable
 		log.info("ImageMagick not found automatically; showing file picker");
 		Path chosen = showLocateDialog();
 		if (chosen == null) {
@@ -142,7 +142,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	}
 
 	/**
-	 * Fast check — no I/O. Returns {@code false} until the background init
+	 * Fast check â€” no I/O. Returns {@code false} until the background init
 	 * populates the supported-extension set.
 	 */
 	@Override
@@ -251,7 +251,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
 	private String name = "ImageMagick Bridge";
 	private String id = "dev.nuclr.plugin.core.imagemagick.bridge";
-	private String version = "1.0.0";
+	private final String version = loadVersion();
 	private String description = "'ImageMagick Bridge' provides QuickView for image formats supported by system-installed ImageMagick";
 	private String author = "Nuclr Development Team";
 	private String license = "Apache-2.0";
@@ -272,6 +272,16 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	@Override
 	public String version() {
 		return version;
+	}
+	private static String loadVersion() {
+		try (var stream = IMBridgeQuickViewProvider.class.getResourceAsStream("/plugin.properties")) {
+			if (stream == null) return "unknown";
+			var props = new java.util.Properties();
+			props.load(stream);
+			return props.getProperty("version", "unknown");
+		} catch (java.io.IOException e) {
+			return "unknown";
+		}
 	}
 
 	@Override
