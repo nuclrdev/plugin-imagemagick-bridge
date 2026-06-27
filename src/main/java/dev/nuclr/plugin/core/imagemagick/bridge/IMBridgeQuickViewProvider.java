@@ -183,6 +183,9 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	public JComponent panel() {
 		if (panel == null) {
 			panel = new IMBridgeViewPanel(service);
+			if (theme != null) {
+				panel.applyTheme(theme);
+			}
 		}
 		return panel;
 	}
@@ -190,6 +193,9 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	@Override
 	public void preinit(NuclrPluginContext context) {
 		this.context = context;
+		if (context != null) {
+			updateTheme(context.getTheme());
+		}
 	}
 
 	@Override
@@ -321,7 +327,13 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
 	@Override
 	public void updateTheme(NuclrThemeScheme themeScheme) {
-
+		if (themeScheme == null) {
+			return;
+		}
+		this.theme = themeScheme;
+		if (panel != null) {
+			SwingUtilities.invokeLater(() -> panel.applyTheme(themeScheme));
+		}
 	}
 
 	@Override

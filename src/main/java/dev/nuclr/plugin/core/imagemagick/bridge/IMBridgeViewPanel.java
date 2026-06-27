@@ -25,6 +25,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 
 import dev.nuclr.platform.NuclrThemeScheme;
 import dev.nuclr.platform.plugin.NuclrResource;
@@ -192,18 +193,26 @@ public class IMBridgeViewPanel extends JPanel {
 	}
 
 	public void applyTheme(NuclrThemeScheme theme) {
-		if (theme == null) {
-			return;
-		}
-
-		backgroundColor = theme.color("Panel.background", backgroundColor);
-		loadingColor = theme.color("Label.foreground", loadingColor);
-		errorColor = theme.color("Component.error.focusedBorderColor", errorColor);
-		cardBackgroundColor = theme.color("TextField.background", cardBackgroundColor);
-		cardBorderColor = theme.color("Table.gridColor", cardBorderColor);
-		detailColor = theme.color("Label.foreground", detailColor);
+		// The active FlatLaf colors live in the shared UIManager (the host installs the
+		// look-and-feel and any scheme overrides there before notifying plugins). The
+		// scheme's own palette is sparse and rarely carries standard keys like
+		// "Panel.background", so UIManager is the source of truth; the scheme is only
+		// an optional override on top of it, and the current values are the last resort.
+		backgroundColor = resolve(theme, "Panel.background", backgroundColor);
+		loadingColor = resolve(theme, "Label.foreground", loadingColor);
+		errorColor = resolve(theme, "Component.error.focusedBorderColor", errorColor);
+		cardBackgroundColor = resolve(theme, "TextField.background", cardBackgroundColor);
+		cardBorderColor = resolve(theme, "Table.gridColor", cardBorderColor);
+		detailColor = resolve(theme, "Label.foreground", detailColor);
 		setBackground(backgroundColor);
 		repaint();
+	}
+
+	/** Resolves a color key: scheme override → active UIManager LaF → current default. */
+	private static Color resolve(NuclrThemeScheme theme, String key, Color fallback) {
+		Color uiColor = UIManager.getColor(key);
+		Color base = uiColor != null ? uiColor : fallback;
+		return theme != null ? theme.color(key, base) : base;
 	}
 
 	// -------------------------------------------------------------------------
