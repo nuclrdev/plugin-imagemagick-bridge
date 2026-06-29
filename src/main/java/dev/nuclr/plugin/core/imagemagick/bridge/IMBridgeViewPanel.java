@@ -4,11 +4,15 @@ import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
+import java.awt.GraphicsConfiguration;
 import java.awt.Graphics2D;
+import java.awt.GraphicsEnvironment;
 import java.awt.Cursor;
 import java.awt.Image;
+import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
+import java.awt.Transparency;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
@@ -69,9 +73,13 @@ public class IMBridgeViewPanel extends JPanel {
 	private final IMBridgeService service;
 
 	private volatile BufferedImage image;
+	private volatile ScaledImage scaledCache;
 	private volatile String statusMessage;
 	private volatile boolean loading;
 	private volatile Thread loadingThread;
+
+	private record ScaledImage(BufferedImage source, int width, int height, BufferedImage bitmap) {
+	}
 
 	/** User zoom factor relative to the fit-to-panel scale; 1.0 == fit. */
 	private double zoomMultiplier = 1.0;
@@ -226,6 +234,7 @@ public class IMBridgeViewPanel extends JPanel {
 		}
 
 		image = null;
+		scaledCache = null;
 		statusMessage = null;
 		loading = true;
 		zoomMultiplier = 1.0;
@@ -246,6 +255,7 @@ public class IMBridgeViewPanel extends JPanel {
 		}
 		loadingThread = null;
 		image = null;
+		scaledCache = null;
 		statusMessage = null;
 		loading = false;
 		zoomMultiplier = 1.0;
@@ -285,11 +295,13 @@ public class IMBridgeViewPanel extends JPanel {
 	/** Fit-to-panel scale (contain, never upscaling) used as the 1.0 zoom baseline. */
 	private double baseFitScale() {
 		BufferedImage img = image;
+		return baseFitScale(img, getWidth(), getHeight());
+	}
+
+	private static double baseFitScale(BufferedImage img, int panelW, int panelH) {
 		if (img == null) {
 			return 0;
 		}
-		int panelW = getWidth();
-		int panelH = getHeight();
 		int imgW = img.getWidth();
 		int imgH = img.getHeight();
 		if (panelW <= 0 || panelH <= 0 || imgW <= 0 || imgH <= 0) {
@@ -302,22 +314,29 @@ public class IMBridgeViewPanel extends JPanel {
 	// Background loading
 
 	private void doLoad(NuclrResource item, AtomicBoolean cancelled) {
+		Thread thisThread = Thread.currentThread();
 		try {
 			BufferedImage img = service.convertToPng(item);
-			if (cancelled.get()) return;
+			if (cancelled.get() || loadingThread != thisThread) return;
+			ScaledImage fitCache = buildInitialScaledCache(img);
+			if (cancelled.get() || loadingThread != thisThread) return;
 			SwingUtilities.invokeLater(() -> {
+				if (cancelled.get() || loadingThread != thisThread) return;
 				image = img;
+				scaledCache = fitCache;
 				statusMessage = null;
 				loading = false;
 				repaint();
 			});
 		} catch (Exception e) {
-			if (cancelled.get()) return;
+			if (cancelled.get() || loadingThread != thisThread) return;
 			String msg = toFriendlyMessage(e);
 			log.warn("ImageMagick Bridge: cannot load '{}': {}", item.getName(), e.getMessage());
 			log.debug("ImageMagick Bridge load error detail", e);
 			SwingUtilities.invokeLater(() -> {
+				if (cancelled.get() || loadingThread != thisThread) return;
 				image = null;
+				scaledCache = null;
 				statusMessage = msg;
 				loading = false;
 				repaint();
@@ -366,17 +385,21 @@ public class IMBridgeViewPanel extends JPanel {
 	}
 
 	private void drawImage(Graphics2D g2orig, double scale) {
+		BufferedImage img = image;
+		if (img == null) {
+			return;
+		}
 		final int panelW = getWidth();
 		final int panelH = getHeight();
-		final int imgW = image.getWidth();
-		final int imgH = image.getHeight();
+		final int imgW = img.getWidth();
+		final int imgH = img.getHeight();
 
 		if (panelW <= 0 || panelH <= 0 || imgW <= 0 || imgH <= 0 || scale <= 0) {
 			return;
 		}
 
-		int drawW = (int) Math.round(imgW * scale);
-		int drawH = (int) Math.round(imgH * scale);
+		int drawW = scaledDimension(imgW, scale);
+		int drawH = scaledDimension(imgH, scale);
 		int x = (panelW - drawW) / 2 + panX;
 		int y = (panelH - drawH) / 2 + panY;
 
@@ -396,10 +419,161 @@ public class IMBridgeViewPanel extends JPanel {
 					.setRenderingHint(
 							RenderingHints.KEY_ANTIALIASING,
 							RenderingHints.VALUE_ANTIALIAS_ON);
-			g2.drawImage(image, x, y, drawW, drawH, null);
+
+			if (scale < 1.0) {
+				BufferedImage prescaled = getOrBuildScaled(img, drawW, drawH);
+				if (prescaled != null && prescaled.getWidth() == drawW && prescaled.getHeight() == drawH) {
+					g2.drawImage(prescaled, x, y, null);
+					return;
+				}
+			}
+
+			drawVisibleImageRegion(g2, img, x, y, drawW, drawH, scale, panelW, panelH);
 		} finally {
 			g2.dispose();
 		}
+	}
+
+	private ScaledImage buildInitialScaledCache(BufferedImage img) {
+		try {
+			int panelW = getWidth();
+			int panelH = getHeight();
+			double scale = baseFitScale(img, panelW, panelH);
+			if (scale <= 0 || scale >= 1.0) {
+				return null;
+			}
+			int drawW = scaledDimension(img.getWidth(), scale);
+			int drawH = scaledDimension(img.getHeight(), scale);
+			BufferedImage bitmap = createScaled(img, drawW, drawH);
+			return new ScaledImage(img, drawW, drawH, bitmap);
+		} catch (Exception e) {
+			log.debug("Could not pre-build ImageMagick Bridge scaled preview", e);
+			return null;
+		}
+	}
+
+	private BufferedImage getOrBuildScaled(BufferedImage src, int w, int h) {
+		if (src == null || w <= 0 || h <= 0) {
+			return null;
+		}
+		if (w >= src.getWidth() && h >= src.getHeight()) {
+			return src;
+		}
+
+		ScaledImage cached = scaledCache;
+		if (cached != null && cached.source() == src && cached.width() == w && cached.height() == h) {
+			return cached.bitmap();
+		}
+
+		BufferedImage scaled = createScaled(src, w, h);
+		scaledCache = new ScaledImage(src, w, h, scaled);
+		return scaled;
+	}
+
+	private BufferedImage createScaled(BufferedImage src, int targetW, int targetH) {
+		int w = src.getWidth();
+		int h = src.getHeight();
+		BufferedImage current = src;
+
+		while ((long) w > (long) targetW * 2 || (long) h > (long) targetH * 2) {
+			w = Math.max(targetW, w / 2);
+			h = Math.max(targetH, h / 2);
+			current = renderResized(current, w, h);
+		}
+
+		return renderResized(current, targetW, targetH);
+	}
+
+	private BufferedImage renderResized(BufferedImage src, int w, int h) {
+		BufferedImage dst = newCompatibleImage(w, h, src.getColorModel().hasAlpha());
+		Graphics2D g = dst.createGraphics();
+		try {
+			g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+			g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+			g.drawImage(src, 0, 0, w, h, null);
+		} finally {
+			g.dispose();
+		}
+		return dst;
+	}
+
+	private static BufferedImage newCompatibleImage(int w, int h, boolean hasAlpha) {
+		int transparency = hasAlpha ? Transparency.TRANSLUCENT : Transparency.OPAQUE;
+		GraphicsConfiguration gc = defaultConfiguration();
+		if (gc != null) {
+			return gc.createCompatibleImage(w, h, transparency);
+		}
+		return new BufferedImage(w, h, hasAlpha ? BufferedImage.TYPE_INT_ARGB : BufferedImage.TYPE_INT_RGB);
+	}
+
+	private static GraphicsConfiguration defaultConfiguration() {
+		try {
+			if (GraphicsEnvironment.isHeadless()) {
+				return null;
+			}
+			return GraphicsEnvironment.getLocalGraphicsEnvironment()
+					.getDefaultScreenDevice()
+					.getDefaultConfiguration();
+		} catch (Exception e) {
+			return null;
+		}
+	}
+
+	private static void drawVisibleImageRegion(
+			Graphics2D g2,
+			BufferedImage img,
+			int x,
+			int y,
+			int drawW,
+			int drawH,
+			double scale,
+			int panelW,
+			int panelH) {
+		Rectangle clip = g2.getClipBounds();
+		int clipX1 = 0;
+		int clipY1 = 0;
+		int clipX2 = panelW;
+		int clipY2 = panelH;
+		if (clip != null) {
+			clipX1 = Math.max(0, clip.x);
+			clipY1 = Math.max(0, clip.y);
+			clipX2 = Math.min(panelW, (int) Math.min(Integer.MAX_VALUE, (long) clip.x + clip.width));
+			clipY2 = Math.min(panelH, (int) Math.min(Integer.MAX_VALUE, (long) clip.y + clip.height));
+		}
+
+		long destX1 = x;
+		long destY1 = y;
+		long destX2 = destX1 + drawW;
+		long destY2 = destY1 + drawH;
+
+		int dx1 = (int) Math.max(clipX1, destX1);
+		int dy1 = (int) Math.max(clipY1, destY1);
+		int dx2 = (int) Math.min(clipX2, destX2);
+		int dy2 = (int) Math.min(clipY2, destY2);
+		if (dx1 >= dx2 || dy1 >= dy2) {
+			return;
+		}
+
+		int imgW = img.getWidth();
+		int imgH = img.getHeight();
+		int sx1 = clamp((int) Math.floor((dx1 - destX1) / scale), 0, imgW - 1);
+		int sy1 = clamp((int) Math.floor((dy1 - destY1) / scale), 0, imgH - 1);
+		int sx2 = clamp((int) Math.ceil((dx2 - destX1) / scale), sx1 + 1, imgW);
+		int sy2 = clamp((int) Math.ceil((dy2 - destY1) / scale), sy1 + 1, imgH);
+
+		g2.drawImage(img, dx1, dy1, dx2, dy2, sx1, sy1, sx2, sy2, null);
+	}
+
+	private static int scaledDimension(int value, double scale) {
+		double scaled = value * scale;
+		if (!Double.isFinite(scaled) || scaled >= Integer.MAX_VALUE) {
+			return Integer.MAX_VALUE;
+		}
+		return Math.max(1, (int) Math.round(scaled));
+	}
+
+	private static int clamp(int value, int min, int max) {
+		return Math.max(min, Math.min(max, value));
 	}
 
 	/** Draws the current zoom percentage as a small pill in the bottom-right corner. */
