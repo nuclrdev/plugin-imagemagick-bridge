@@ -1,16 +1,14 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
-import java.io.File;
-import java.lang.reflect.InvocationTargetException;
 import java.nio.file.Path;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.swing.JComponent;
-import javax.swing.JFileChooser;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
-import javax.swing.filechooser.FileNameExtensionFilter;
 
 import org.apache.commons.io.FilenameUtils;
 
@@ -32,11 +30,9 @@ import lombok.extern.slf4j.Slf4j;
  * <ol>
  * <li>Auto-detects the {@code magick} binary (saved preference â†’ config â†’ OS
  * PATH â†’ well-known dirs).</li>
- * <li>If detection fails, shows a {@link JFileChooser} on the EDT so the user
- * can locate the executable manually. A valid selection is persisted via
- * {@code java.util.prefs.Preferences} and used on every subsequent launch.</li>
- * <li>If the user cancels or the chosen file is invalid the plugin stays
- * disabled silently.</li>
+ * <li>If detection fails, startup remains silent. Installation help and the
+ * executable picker are only shown when this provider is asked to open a
+ * preview.</li>
  * </ol>
  *
  * <p>
@@ -47,8 +43,29 @@ import lombok.extern.slf4j.Slf4j;
 public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
 	private static final String THEME_UPDATED_EVENT_TYPE = "dev.nuclr.platform.theme.updated";
+	/**
+	 * Conservative routing set used only while ImageMagick is unavailable. Without
+	 * it the host would never select this provider, so the preview-time setup page
+	 * could never be reached. The installed binary's queried format set remains the
+	 * source of truth once detection succeeds.
+	 */
+	private static final Set<String> SETUP_TRIGGER_EXTENSIONS = Set.of(
+			"3fr", "aai", "ai", "apng", "arw", "avi", "avs", "avif", "bgra", "bie", "bmp", "cin",
+			"cmyk", "cmyka", "cr2", "cr3", "crw", "cut", "dcm", "dcr", "dcx", "dds",
+			"dib", "djvu", "dng", "dpx", "epdf", "epi", "eps", "eps2", "eps3", "epsf",
+			"epsi", "ept", "exr", "fax", "fff", "fits", "flif", "fpx", "fts", "g3",
+			"gif", "hdr", "heic", "heif", "hrz", "ico", "iiq", "j2c", "j2k", "jng", "jp2",
+			"jpc", "jpeg", "jpg", "jpt", "jxl", "mat", "miff", "mng", "mono", "mos", "mrw", "mtv",
+			"nef", "nrw", "ora", "orf", "otb", "palm", "pam", "pbm", "pcd", "pcds",
+			"pcl", "pcx", "pdb", "pdf", "pef", "pes", "pfa", "pfb", "pfm", "pgm", "picon", "png",
+			"pict", "pix", "pnm", "ppm", "ps", "ps2", "ps3", "psb", "psd", "ptif",
+			"pwp", "raf", "raw", "rgb", "rgba", "rgbo", "rla", "rle", "rw2", "sct",
+			"sfw", "sgi", "six", "sixel", "sr2", "srf", "sun", "svg", "svgz", "tga",
+			"tiff", "tim", "ttf", "ubrl", "uil", "vicar", "viff", "wbmp", "webp",
+			"wmf", "wpg", "x3f", "xbm", "xcf", "xpm", "xwd");
 
 	private final IMBridgeService service;
+	private final Object setupLock = new Object();
 	private NuclrPluginContext context;
 	private IMBridgeViewPanel panel;
 	private volatile AtomicBoolean currentCancelled;
@@ -60,9 +77,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	 * required.
 	 */
 	public IMBridgeQuickViewProvider() {
-		IMBridgeConfig config = new IMBridgeConfig();
-		this.service = new IMBridgeService(config, new DefaultMagickRunner());
-		Thread.ofVirtual().name("imbridge-init").start(this::initWithFallback);
+		this.service = SharedServiceHolder.SERVICE;
 	}
 
 	/** Package-private: inject a pre-configured service for tests. */
@@ -73,63 +88,48 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	// -------------------------------------------------------------------------
 	// Initialisation
 
-	private void initWithFallback() {
-		service.init();
-		if (service.isReady()) {
-			return;
-		}
+	private static final class SharedServiceHolder {
+		private static final IMBridgeService SERVICE = createService();
 
-		// Auto-detection failed â€” ask the user to locate the executable
-		log.info("ImageMagick not found automatically; showing file picker");
-		Path chosen = showLocateDialog();
-		if (chosen == null) {
-			log.info("User cancelled the ImageMagick file picker; plugin disabled");
-			return;
-		}
-
-		try {
-			service.initWithUserSelectedPath(chosen);
-			log.info("ImageMagick Bridge initialised with user-selected path: {}", chosen);
-		} catch (Exception e) {
-			log.warn("User-selected path '{}' rejected: {}", chosen, e.getMessage());
-			showError("Not a valid ImageMagick 7 executable:\n" + chosen + "\n\n" + e.getMessage());
+		private static IMBridgeService createService() {
+			IMBridgeService shared = new IMBridgeService(new IMBridgeConfig(), new DefaultMagickRunner());
+			// Detection and format discovery are safe at startup; only user-facing setup UI
+			// must wait until an actual preview request.
+			Thread.ofVirtual().name("imbridge-init").start(shared::init);
+			return shared;
 		}
 	}
 
-	/**
-	 * Blocks the calling (virtual) thread while the file chooser runs on the EDT.
-	 * Returns the chosen {@link Path}, or {@code null} if the user cancelled.
-	 */
-	private static Path showLocateDialog() {
-		Path[] result = { null };
-		try {
-			SwingUtilities.invokeAndWait(() -> {
-				JFileChooser chooser = new JFileChooser();
-				chooser.setDialogTitle("Locate ImageMagick 7 executable (magick / magick.exe)");
-				chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-				chooser.setApproveButtonText("Use this executable");
-
-				if (isWindows()) {
-					// Start the user in Program Files where IM7 typically installs
-					File programFiles = new File("C:\\Program Files");
-					if (programFiles.isDirectory()) {
-						chooser.setCurrentDirectory(programFiles);
-					}
-					chooser.setFileFilter(new FileNameExtensionFilter("Executable (*.exe)", "exe"));
-				} else {
-					chooser.setCurrentDirectory(new File("/usr/local/bin"));
-				}
-
-				if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-					result[0] = chooser.getSelectedFile().toPath();
-				}
-			});
-		} catch (InvocationTargetException e) {
-			log.error("Exception inside file-picker dialog", e.getCause());
-		} catch (InterruptedException e) {
-			Thread.currentThread().interrupt();
+	private boolean ensureReadyForPreview() {
+		if (service.isReady() || service.awaitInitialization()) {
+			return true;
 		}
-		return result[0];
+
+		synchronized (setupLock) {
+			if (service.isReady()) {
+				return true;
+			}
+
+			log.info("ImageMagick is unavailable during preview; showing installation help");
+			if (ImageMagickSetupDialog.show(panel) != ImageMagickSetupDialog.Action.LOCATE_EXECUTABLE) {
+				return false;
+			}
+
+			Path chosen = ImageMagickSetupDialog.showLocateDialog(panel);
+			if (chosen == null) {
+				return false;
+			}
+
+			try {
+				service.initWithUserSelectedPath(chosen);
+				log.info("ImageMagick Bridge initialised with user-selected path: {}", chosen);
+				return true;
+			} catch (Exception e) {
+				log.warn("User-selected path '{}' rejected: {}", chosen, e.getMessage());
+				showError("Not a valid ImageMagick 7 executable:\n" + chosen + "\n\n" + e.getMessage());
+				return false;
+			}
+		}
 	}
 
 	private static void showError(String message) {
@@ -137,13 +137,9 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 				() -> JOptionPane.showMessageDialog(null, message, "ImageMagick Bridge", JOptionPane.ERROR_MESSAGE));
 	}
 
-	private static boolean isWindows() {
-		return System.getProperty("os.name", "").toLowerCase().startsWith("win");
-	}
-
 	/**
-	 * Fast check â€” no I/O. Returns {@code false} until the background init
-	 * populates the supported-extension set.
+	 * Fast check â€” no I/O. Uses the discovered extension set when ready and a
+	 * conservative setup-trigger set while detection is pending or unavailable.
 	 */
 	@Override
 	public boolean supports(NuclrResource resource) {
@@ -159,7 +155,19 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 			return false;
 		}
 
-		return service.getSupportedExtensions().contains(extension.toLowerCase());
+		String normalized = extension.toLowerCase(Locale.ROOT);
+		if (service.getSupportedExtensions().contains(normalized)) {
+			return true;
+		}
+
+		// When detection has not completed or ImageMagick is missing, claim only
+		// well-known bridge formats. This lets the host make a real openResource()
+		// attempt, where setup UI is allowed, without hijacking arbitrary files.
+		return !service.isReady() && isSetupTriggerExtension(normalized);
+	}
+
+	static boolean isSetupTriggerExtension(String extension) {
+		return extension != null && SETUP_TRIGGER_EXTENSIONS.contains(extension.toLowerCase(Locale.ROOT));
 	}
 
 	private static String extension(NuclrResource resource) {
@@ -215,6 +223,9 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		currentResource = item;
 		currentCancelled = cancelled;
 		panel();
+		// This is deliberately the first point at which missing-installation UI may
+		// appear. Merely loading or enabling the plugin never interrupts the user.
+		ensureReadyForPreview();
 		return panel.load(item, cancelled);
 	}
 

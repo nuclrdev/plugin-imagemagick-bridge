@@ -58,7 +58,11 @@ quick-view-imagemagick-<version>.zip.sig
 
 Nuclr Commander verifies the RSA-SHA256 signature against `nuclr-cert.pem` on load.
 
-If auto-detection fails on first use, the plugin opens a file picker so you can point it to `magick` or `magick.exe`.
+Auto-detection is silent while the plugin loads. If ImageMagick is unavailable when
+the plugin is actually asked to render a preview, it shows installation instructions
+for the current operating system. You can copy the suggested install command (where
+available), open the official download links, or point the plugin to `magick` /
+`magick.exe` manually.
 
 ## ⚙️ Configuration
 

@@ -125,10 +125,14 @@ public final class IMBridgeService {
      * the auto-detection step.  Used by integration tests with a mock runner.
      */
     void initWithPath(Path exe, String version) throws Exception {
+        Set<String> formats = formatRegistry.loadFormats(exe);
+        // Publish ready state only after format discovery succeeds. Otherwise a
+        // failed registry query could leave the service claiming it was usable.
         this.magickExe = exe;
         this.imVersion = version;
-        Set<String> formats = formatRegistry.loadFormats(exe);
         this.supportedExtensions = formats;
+        this.initFailed = false;
+        this.initError = null;
         log.info("ImageMagick Bridge ready: {} formats, IM {}", formats.size(), version);
     }
 
@@ -155,6 +159,16 @@ public final class IMBridgeService {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Waits for silent startup detection to finish and reports whether the service
+     * is ready. Preview providers use this before deciding to show setup UI, so a
+     * slow but valid installation never causes a premature prompt.
+     */
+    public boolean awaitInitialization() {
+        awaitInit();
+        return isReady();
     }
 
     /** Returns the (possibly empty) set of supported extensions; never {@code null}. */

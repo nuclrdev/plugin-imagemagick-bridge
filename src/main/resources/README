@@ -2,3 +2,7 @@
 
 A **Nuclr Commander** quick-view plugin that provides QuickView for image formats supported by system-installed ImageMagick.
 
+ImageMagick discovery is silent at startup. If a preview needs ImageMagick 7 and
+it is unavailable, the plugin shows installation help for the current operating
+system and lets the user locate an existing `magick` executable.
+
