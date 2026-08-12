@@ -111,6 +111,7 @@ maxPixelDimension=2048
 src/main/java/dev/nuclr/plugin/core/imagemagick/bridge/
 ├── IMBridgeQuickViewProvider.java   plugin entry point
 ├── IMBridgeViewPanel.java           Swing preview panel
+├── ImageMagickSetupDialog.java      install instructions / "locate magick" prompt
 ├── config/
 │   └── IMBridgeConfig.java          configuration model
 └── service/
