@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "version": "${project.version}",
+  "platformSdkVersion": "4.0.0",
+	"plugins": [
+		{
+			"class": "dev.nuclr.plugin.core.imagemagick.bridge.IMBridgeQuickViewProvider",
+			"type": "QuickView",
+			"id": "dev.nuclr.plugin.core.imagemagick.bridge",
+			"name": "ImageMagick Bridge",
+			"version": "${project.version}",
+			"description": "'ImageMagick Bridge' provides QuickView for image formats supported by system-installed ImageMagick",
+			"author": "Nuclr Development Team",
+			"license": "Apache-2.0",
+			"website": "https://nuclr.dev",
+			"pageUrl": "https://nuclr.dev/plugins/core/imagemagick-bridge.html",
+			"docUrl": "https://nuclr.dev/plugins/core/imagemagick-bridge.html",
+			"developer": "Official",
+			"singleton": true,
+			"priority": 50
+		}
+	]
+}

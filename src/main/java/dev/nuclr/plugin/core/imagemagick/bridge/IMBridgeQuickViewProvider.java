@@ -247,10 +247,6 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		context = null;
 	}
 
-	@Override
-	public int priority() {
-		return 50;
-	}
 
 	@Override
 	public boolean onFocusGained() {
@@ -266,75 +262,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		return false;
 	}
 
-	private String name = "ImageMagick Bridge";
-	private String id = "dev.nuclr.plugin.core.imagemagick.bridge";
-	private final String version = loadVersion();
-	private String description = "'ImageMagick Bridge' provides QuickView for image formats supported by system-installed ImageMagick";
-	private String author = "Nuclr Development Team";
-	private String license = "Apache-2.0";
-	private String website = "https://nuclr.dev";
-	private String pageUrl = "https://nuclr.dev/plugins/core/imagemagick-bridge.html";
-	private String docUrl = "https://nuclr.dev/plugins/core/imagemagick-bridge.html";
 
-	@Override
-	public String id() {
-		return id;
-	}
-
-	@Override
-	public String name() {
-		return name;
-	}
-
-	@Override
-	public String version() {
-		return version;
-	}
-	private static String loadVersion() {
-		try (var stream = IMBridgeQuickViewProvider.class.getResourceAsStream("/plugin.properties")) {
-			if (stream == null) return "unknown";
-			var props = new java.util.Properties();
-			props.load(stream);
-			return props.getProperty("version", "unknown");
-		} catch (java.io.IOException e) {
-			return "unknown";
-		}
-	}
-
-	@Override
-	public String description() {
-		return description;
-	}
-
-	@Override
-	public String author() {
-		return author;
-	}
-
-	@Override
-	public String license() {
-		return license;
-	}
-
-	@Override
-	public String website() {
-		return website;
-	}
-
-	@Override
-	public String pageUrl() {
-		return pageUrl;
-	}
-
-	@Override
-	public String docUrl() {
-		return docUrl;
-	}
-
-	@Override
-	public Developer developer() {
-		return Developer.Official;
-	}
 
 	@Override
 	public void updateTheme(NuclrThemeScheme themeScheme) {
@@ -356,4 +284,5 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	public String uuid() {
 		return UUID.randomUUID().toString();
 	}
+
 }
