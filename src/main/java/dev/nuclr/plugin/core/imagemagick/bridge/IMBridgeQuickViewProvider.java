@@ -183,6 +183,10 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	}
 
 	private static String extension(Path path) {
+		if (path == null) {
+			// Path-less (virtual) resources are matched by name instead.
+			return null;
+		}
 		var name = path.getFileName() != null ? path.getFileName().toString() : path.toString();
 		return FilenameUtils.getExtension(name);
 	}
