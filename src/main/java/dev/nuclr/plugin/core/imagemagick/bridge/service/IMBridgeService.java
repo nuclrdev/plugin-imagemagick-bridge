@@ -200,6 +200,22 @@ public final class IMBridgeService {
     }
 
     public BufferedImage convertToPng(NuclrResource item) throws Exception {
+        int max = config.getMaxPixelDimension();
+        return convert(item, max, max);
+    }
+
+    /**
+     * Converts the item's first frame to a PNG no larger than
+     * {@code maxWidth} x {@code maxHeight}. Same temp-file lifecycle and guards
+     * as {@link #convertToPng(NuclrResource)}; ImageMagick does the shrinking,
+     * so a large source is never decoded at full size on the Java side.
+     */
+    public BufferedImage thumbnail(NuclrResource item, int maxWidth, int maxHeight) throws Exception {
+        int max = config.getMaxPixelDimension();
+        return convert(item, Math.min(maxWidth, max), Math.min(maxHeight, max));
+    }
+
+    private BufferedImage convert(NuclrResource item, int maxWidth, int maxHeight) throws Exception {
         if (!isReady()) {
             awaitInit(); // first preview may race the background init thread
         }
@@ -238,7 +254,7 @@ public final class IMBridgeService {
                 }
             }
 
-            runConversion(tempInput, tempOutput, item.getName());
+            runConversion(tempInput, tempOutput, item.getName(), maxWidth, maxHeight);
 
             BufferedImage img = ImageIO.read(tempOutput.toFile());
             if (img == null) {
@@ -264,8 +280,9 @@ public final class IMBridgeService {
         }
     }
 
-    private void runConversion(Path input, Path output, String itemName) throws Exception {
-        List<String> cmd = buildConversionCommand(input, output);
+    private void runConversion(Path input, Path output, String itemName, int maxWidth, int maxHeight)
+            throws Exception {
+        List<String> cmd = buildConversionCommand(input, output, maxWidth, maxHeight);
         log.debug("Converting {}: {}", itemName, cmd);
 
         RunResult result = runner.run(
@@ -282,7 +299,7 @@ public final class IMBridgeService {
         }
     }
 
-    private List<String> buildConversionCommand(Path input, Path output) {
+    private List<String> buildConversionCommand(Path input, Path output, int maxWidth, int maxHeight) {
         List<String> cmd = new ArrayList<>();
         cmd.add(magickExe.toString());
         // Resource limits — placed before the input file per IM7 convention.
@@ -298,8 +315,7 @@ public final class IMBridgeService {
         // formats like PSD, TIFF, or animated GIF.  For single-frame images it is a no-op.
         cmd.add(input + "[0]");
         // Resize: only shrink, never enlarge (the > modifier)
-        cmd.addAll(List.of("-resize",
-                config.getMaxPixelDimension() + "x" + config.getMaxPixelDimension() + ">"));
+        cmd.addAll(List.of("-resize", maxWidth + "x" + maxHeight + ">"));
         // Output with explicit PNG: prefix so IM doesn't guess the format
         cmd.add("PNG:" + output);
         return cmd;

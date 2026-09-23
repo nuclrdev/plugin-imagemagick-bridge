@@ -45,6 +45,12 @@ For multi-frame or layered formats, the plugin requests only the first frame/lay
 - ☕ Java 21
 - 🖼️ ImageMagick 7 installed on the host system (`magick` on `PATH` or in a common location)
 
+## 🖼️ Thumbnail
+
+ImageMagick converts the first frame straight to the requested box (`-resize WxH>`, never above the configured preview limit), so a huge PSD or RAW is never decoded at full size in Java. The setup dialog is never shown for a thumbnail: without ImageMagick there simply is none.
+
+It implements the platform SDK 6.0.0 thumbnail methods, so plugins that want a picture of a file - attachment chips in AI Projects, for one - get it through Commander.
+
 ## 📥 Installation
 
 1. Install **ImageMagick 7** on your system.
@@ -130,7 +136,7 @@ All dependencies are provided by Nuclr Commander at runtime — nothing extra is
 
 | Library | Version | Purpose |
 |---|---|---|
-| `dev.nuclr:platform-sdk` | `3.0.1` | Nuclr platform interfaces |
+| `dev.nuclr:platform-sdk` | `6.0.0` | Nuclr platform interfaces |
 
 ## 📄 License
 

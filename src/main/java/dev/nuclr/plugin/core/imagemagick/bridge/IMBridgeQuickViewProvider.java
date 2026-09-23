@@ -1,5 +1,6 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
+import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Set;
@@ -231,6 +232,38 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		// appear. Merely loading or enabling the plugin never interrupts the user.
 		ensureReadyForPreview();
 		return panel.load(item, cancelled);
+	}
+
+	@Override
+	public boolean supportsThumbnails() {
+		return true;
+	}
+
+	/**
+	 * Never shows the setup UI: a missing ImageMagick simply means no thumbnail,
+	 * and the caller falls back to an icon.
+	 */
+	@Override
+	public BufferedImage thumbnail(NuclrResource resource, int maxWidth, int maxHeight, AtomicBoolean cancelled) {
+		if (resource == null || maxWidth <= 0 || maxHeight <= 0 || !supports(resource)) {
+			return null;
+		}
+		try {
+			if (!service.isReady() && !service.awaitInitialization()) {
+				return null;
+			}
+			if (cancelled != null && cancelled.get()) {
+				return null;
+			}
+			BufferedImage converted = service.thumbnail(resource, maxWidth, maxHeight);
+			if (cancelled != null && cancelled.get()) {
+				return null;
+			}
+			return ThumbnailScaler.fit(converted, maxWidth, maxHeight);
+		} catch (Exception e) {
+			log.debug("No thumbnail for {}: {}", resource.getName(), e.toString());
+			return null;
+		}
 	}
 
 	@Override
