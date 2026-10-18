@@ -101,6 +101,14 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		}
 	}
 
+	/**
+	 * Whether the installation help has been offered this session. Once per run, not per file:
+	 * the dialog is modal, and showing it on every TIFF or WEBP the cursor passed made browsing a
+	 * folder of them impossible. Later previews fall through to the panel, which says inline that
+	 * ImageMagick is missing. Static because every provider instance shares the one service.
+	 */
+	private static final AtomicBoolean SETUP_OFFERED = new AtomicBoolean();
+
 	private boolean ensureReadyForPreview() {
 		if (service.isReady() || service.awaitInitialization()) {
 			return true;
@@ -109,6 +117,9 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 		synchronized (setupLock) {
 			if (service.isReady()) {
 				return true;
+			}
+			if (!SETUP_OFFERED.compareAndSet(false, true)) {
+				return false;
 			}
 
 			log.info("ImageMagick is unavailable during preview; showing installation help");
