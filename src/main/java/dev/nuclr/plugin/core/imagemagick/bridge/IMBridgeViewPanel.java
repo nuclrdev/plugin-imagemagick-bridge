@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
+import static dev.nuclr.plugin.core.imagemagick.bridge.Messages.tr;
+
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -75,6 +77,7 @@ public class IMBridgeViewPanel extends JPanel {
 	private volatile BufferedImage image;
 	private volatile ScaledImage scaledCache;
 	private volatile String statusMessage;
+	private volatile String statusTitle;
 	private volatile boolean loading;
 	private volatile Thread loadingThread;
 
@@ -92,7 +95,7 @@ public class IMBridgeViewPanel extends JPanel {
 	private boolean dragging;
 
 	private final JPopupMenu contextMenu = new JPopupMenu();
-	private final JMenuItem copyImageItem = new JMenuItem("Copy image to clipboard");
+	private final JMenuItem copyImageItem = new JMenuItem(tr("menu.copy.image"));
 
 	public IMBridgeViewPanel(IMBridgeService service) {
 		this.service = service;
@@ -331,6 +334,8 @@ public class IMBridgeViewPanel extends JPanel {
 		} catch (Exception e) {
 			if (cancelled.get() || loadingThread != thisThread) return;
 			String msg = toFriendlyMessage(e);
+			// Classified from the service's own (English) message, not the translated one.
+			String title = e.getMessage() == null ? tr("error.title.failed") : classifyErrorTitle(e.getMessage());
 			log.warn("ImageMagick Bridge: cannot load '{}': {}", item.getName(), e.getMessage());
 			log.debug("ImageMagick Bridge load error detail", e);
 			SwingUtilities.invokeLater(() -> {
@@ -338,6 +343,7 @@ public class IMBridgeViewPanel extends JPanel {
 				image = null;
 				scaledCache = null;
 				statusMessage = msg;
+				statusTitle = title;
 				loading = false;
 				repaint();
 			});
@@ -347,19 +353,19 @@ public class IMBridgeViewPanel extends JPanel {
 	private static String toFriendlyMessage(Exception e) {
 		String msg = e.getMessage();
 		if (msg == null) {
-			return "Preview failed (unknown error).";
+			return tr("error.unknown");
 		}
 		if (msg.contains("not found") || msg.contains("not yet initialised")) {
-			return "ImageMagick not available. Install ImageMagick 7+.";
+			return tr("error.not.available");
 		}
 		if (msg.contains("timed out")) {
-			return "Preview timed out. Try increasing conversionTimeoutSeconds.";
+			return tr("error.timed.out");
 		}
 		if (msg.contains("too large")) {
 			return msg; // already user-friendly from IMBridgeService
 		}
 		// Strip to first line to keep the message brief
-		return "Preview failed: " + msg.lines().findFirst().orElse(msg);
+		return tr("error.failed", msg.lines().findFirst().orElse(msg));
 	}
 
 	// -------------------------------------------------------------------------
@@ -374,13 +380,13 @@ public class IMBridgeViewPanel extends JPanel {
 		g.fillRect(0, 0, getWidth(), getHeight());
 
 		if (loading) {
-			drawCenteredText(g, "Converting\u2026", loadingColor);
+			drawCenteredText(g, tr("panel.converting"), loadingColor);
 		} else if (image != null) {
 			double scale = baseFitScale() * zoomMultiplier;
 			drawImage((Graphics2D) g, scale);
 			drawZoomBadge((Graphics2D) g.create(), scale);
 		} else if (statusMessage != null) {
-			drawErrorCard((Graphics2D) g.create(), statusMessage);
+			drawErrorCard((Graphics2D) g.create(), statusTitle, statusMessage);
 		}
 	}
 
@@ -624,7 +630,7 @@ public class IMBridgeViewPanel extends JPanel {
 		g.drawString(text, x, y);
 	}
 
-	private void drawErrorCard(Graphics2D g2, String message) {
+	private void drawErrorCard(Graphics2D g2, String errorTitle, String message) {
 		try {
 			g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 			g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -633,7 +639,7 @@ public class IMBridgeViewPanel extends JPanel {
 			Font titleFont = baseFont.deriveFont(Font.BOLD, Math.max(15f, baseFont.getSize2D() + 2f));
 			Font bodyFont = baseFont.deriveFont(Font.PLAIN, Math.max(12f, baseFont.getSize2D()));
 
-			String title = classifyErrorTitle(message);
+			String title = errorTitle != null ? errorTitle : classifyErrorTitle(message);
 			List<String> lines = wrapMessage(message, MESSAGE_WRAP_WIDTH);
 
 			FontMetrics titleMetrics = g2.getFontMetrics(titleFont);
@@ -686,19 +692,19 @@ public class IMBridgeViewPanel extends JPanel {
 
 	private static String classifyErrorTitle(String message) {
 		if (message == null || message.isBlank()) {
-			return "Preview unavailable";
+			return tr("error.title.unavailable");
 		}
 		String normalized = message.toLowerCase();
 		if (normalized.contains("not available") || normalized.contains("not found") || normalized.contains("initialised")) {
-			return "ImageMagick unavailable";
+			return tr("error.title.imagemagick");
 		}
 		if (normalized.contains("timed out")) {
-			return "Conversion timed out";
+			return tr("error.title.timed.out");
 		}
 		if (normalized.contains("too large")) {
-			return "File too large";
+			return tr("error.title.too.large");
 		}
-		return "Preview failed";
+		return tr("error.title.failed");
 	}
 
 	private static List<String> wrapMessage(String message, int maxChars) {

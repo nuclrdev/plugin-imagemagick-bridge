@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
+import static dev.nuclr.plugin.core.imagemagick.bridge.Messages.tr;
+
 import java.awt.image.BufferedImage;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -138,7 +140,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 				return true;
 			} catch (Exception e) {
 				log.warn("User-selected path '{}' rejected: {}", chosen, e.getMessage());
-				showError("Not a valid ImageMagick 7 executable:\n" + chosen + "\n\n" + e.getMessage());
+				showError(tr("error.invalid.executable", chosen, e.getMessage()));
 				return false;
 			}
 		}
@@ -146,7 +148,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 
 	private static void showError(String message) {
 		SwingUtilities.invokeLater(
-				() -> JOptionPane.showMessageDialog(null, message, "ImageMagick Bridge", JOptionPane.ERROR_MESSAGE));
+				() -> JOptionPane.showMessageDialog(null, message, tr("error.title"), JOptionPane.ERROR_MESSAGE));
 	}
 
 	/**
@@ -218,6 +220,7 @@ public class IMBridgeQuickViewProvider implements QuickViewNuclrPlugin {
 	public void preinit(NuclrPluginContext context) {
 		this.context = context;
 		if (context != null) {
+			Messages.use(context.getLocale());
 			updateTheme(context.getTheme());
 		}
 	}

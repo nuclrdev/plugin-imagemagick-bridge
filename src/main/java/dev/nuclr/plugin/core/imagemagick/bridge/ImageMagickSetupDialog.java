@@ -1,5 +1,7 @@
 package dev.nuclr.plugin.core.imagemagick.bridge;
 
+import static dev.nuclr.plugin.core.imagemagick.bridge.Messages.tr;
+
 import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
@@ -60,13 +62,13 @@ final class ImageMagickSetupDialog {
 	private static Action showOnEdt(Component parent, InstallationHelp help) {
 		JEditorPane message = createMessage(help);
 		Object[] options = help.command() == null
-				? new Object[] { "Locate executable", "Not now" }
-				: new Object[] { "Copy install command", "Locate executable", "Not now" };
+				? new Object[] { tr("setup.locate"), tr("setup.not.now") }
+				: new Object[] { tr("setup.copy.command"), tr("setup.locate"), tr("setup.not.now") };
 
 		int choice = JOptionPane.showOptionDialog(
 				visibleParent(parent),
 				message,
-				"ImageMagick 7 is required",
+				tr("setup.title"),
 				JOptionPane.DEFAULT_OPTION,
 				JOptionPane.WARNING_MESSAGE,
 				null,
@@ -89,13 +91,13 @@ final class ImageMagickSetupDialog {
 		Path[] result = { null };
 		Runnable showChooser = () -> {
 			JFileChooser chooser = new JFileChooser();
-			chooser.setDialogTitle("Locate ImageMagick 7 executable (magick / magick.exe)");
+			chooser.setDialogTitle(tr("locate.title"));
 			chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-			chooser.setApproveButtonText("Use this executable");
+			chooser.setApproveButtonText(tr("locate.approve"));
 			setInitialDirectory(chooser);
 
 			if (isWindows(System.getProperty("os.name", ""))) {
-				chooser.setFileFilter(new FileNameExtensionFilter("Executable (*.exe)", "exe"));
+				chooser.setFileFilter(new FileNameExtensionFilter(tr("locate.filter.exe"), "exe"));
 			}
 			if (chooser.showOpenDialog(visibleParent(parent)) == JFileChooser.APPROVE_OPTION) {
 				result[0] = chooser.getSelectedFile().toPath();
@@ -142,46 +144,41 @@ final class ImageMagickSetupDialog {
 		if (isWindows(osName)) {
 			return new InstallationHelp(
 					"Windows",
-					"Install the official ImageMagick 7 package. Winget is the quickest option; "
-							+ "the official graphical installer is available from the download page.",
+					tr("setup.windows.explanation"),
 					"winget install ImageMagick.Q16",
-					links(link(DOWNLOAD_URL, "Official Windows download")));
+					links(link(DOWNLOAD_URL, tr("setup.windows.download"))));
 		}
 		if (isMac(osName)) {
 			return new InstallationHelp(
 					"macOS",
-					"Install ImageMagick 7 with Homebrew. The plugin checks both Apple Silicon "
-							+ "and Intel Homebrew locations.",
+					tr("setup.mac.explanation"),
 					"brew install imagemagick",
-					links(link(HOMEBREW_URL, "Install Homebrew"), link(DOWNLOAD_URL, "ImageMagick download guide")));
+					links(link(HOMEBREW_URL, tr("setup.mac.homebrew")), link(DOWNLOAD_URL, tr("setup.mac.download"))));
 		}
 		if (isLinux(osName)) {
 			return new InstallationHelp(
 					"Linux",
-					"Download the official ImageMagick 7 AppImage, make it executable, then use "
-							+ "Locate executable below to select it. You can also build ImageMagick 7 from source. "
-							+ "Distribution packages may still provide ImageMagick 6, which this plugin cannot use.",
+					tr("setup.linux.explanation"),
 					null,
-					links(link(DOWNLOAD_URL, "Official Linux AppImage"), link(SOURCE_URL, "Build ImageMagick 7 from source")));
+					links(link(DOWNLOAD_URL, tr("setup.linux.appimage")), link(SOURCE_URL, tr("setup.linux.source"))));
 		}
 		return new InstallationHelp(
-				"this operating system",
-				"Install ImageMagick 7, then select its magick executable below.",
+				tr("setup.other.platform"),
+				tr("setup.other.explanation"),
 				null,
-				links(link(DOWNLOAD_URL, "Official ImageMagick downloads"), link(SOURCE_URL, "Source installation guide")));
+				links(link(DOWNLOAD_URL, tr("setup.other.downloads")), link(SOURCE_URL, tr("setup.other.source"))));
 	}
 
 	static JEditorPane createMessage(InstallationHelp help) {
-		String command = help.command() == null ? "" : "<p>Run in a terminal:</p>"
+		String command = help.command() == null ? "" : "<p>" + html(tr("setup.run.in.terminal")) + "</p>"
 				+ "<p style='margin-left:12px;font-family:monospace;'><b>" + html(help.command()) + "</b></p>";
 		String content = "<html><body style='font-family:sans-serif;width:540px;'>"
-				+ "<h2>" + html(help.platform()) + " setup</h2>"
-				+ "<p>Nuclr could not find a working <b>ImageMagick 7</b> installation.</p>"
+				+ "<h2>" + html(tr("setup.heading", help.platform())) + "</h2>"
+				+ "<p>" + tr("setup.not.found.html") + "</p>"
 				+ "<p>" + html(help.explanation()) + "</p>"
 				+ command
 				+ "<p>" + help.linksHtml() + "</p>"
-				+ "<p>After installing, restart Nuclr so supported formats can be discovered. "
-				+ "If ImageMagick is already installed, choose <b>Locate executable</b>.</p>"
+				+ "<p>" + tr("setup.after.install.html", html(tr("setup.locate"))) + "</p>"
 				+ "</body></html>";
 
 		JEditorPane message = new JEditorPane("text/html", content);
